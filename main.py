@@ -620,4 +620,445 @@ class SystemGenerator:
             field_orbit_radius = random.uniform(CONFIG["min_orbit_radius"] * 1.2, last_orbit_radius * 1.2)
             field_width = field_orbit_radius * random.uniform(0.1, 0.3)
             
-            for i in range(CONFIG["aster
+            for i in range(CONFIG["asteroids_per_field"]):
+                orbit_radius = field_orbit_radius + random.uniform(-field_width/2, field_width/2)
+                angle = random.uniform(0, 2 * np.pi)
+                position = center + np.array([np.cos(angle), np.sin(angle)]) * orbit_radius
+                
+                # Calculate orbital velocity with some variance
+                orbit_speed = np.sqrt(CONFIG["gravity_constant"] * star_mass / orbit_radius) * random.uniform(0.9, 1.1)
+                velocity_direction = np.array([-np.sin(angle), np.cos(angle)])
+                velocity = velocity_direction * orbit_speed
+                
+                # Generate asteroid properties
+                asteroid_mass = random.uniform(CONFIG["asteroid_mass_min"], CONFIG["asteroid_mass_max"])
+                asteroid_radius = random.uniform(CONFIG["asteroid_radius_min"], CONFIG["asteroid_radius_max"])
+                asteroid_color = (
+                    random.randint(80, 120),
+                    random.randint(80, 120),
+                    random.randint(80, 120)
+                )
+                
+                asteroid = Asteroid(position, velocity, asteroid_mass, asteroid_radius, asteroid_color, name=f"Asteroid-{i}")
+                self.bodies.append(asteroid)
+        
+        return self.bodies
+
+class StarSystem:
+    def __init__(self, seed=None):
+        self.generator = SystemGenerator(seed)
+        self.bodies = self.generator.generate_system()
+        self.rocket = None
+        self.bullets = []
+        self.enemies = []
+        self.missions = []
+        self.active_mission = None
+        self.collectibles = []
+        self.time_since_enemy_spawn = 0
+        
+    def add_rocket(self, rocket):
+        self.rocket = rocket
+        
+    def update(self, dt):
+        # Apply gravitational forces between bodies
+        for i, body1 in enumerate(self.bodies):
+            for body2 in self.bodies[i+1:]:
+                force = body1.gravitational_force_from(body2, CONFIG["gravity_constant"])
+                body1.apply_force(force)
+                body2.apply_force(-force)
+            
+            # Apply gravitational force on rocket
+            if self.rocket:
+                force = self.rocket.gravitational_force_from(body1, CONFIG["gravity_constant"])
+                self.rocket.apply_force(force)
+        
+        # Update positions of all bodies
+        for body in self.bodies:
+            body.update_position(dt)
+        
+        if self.rocket:
+            self.rocket.update_position(dt)
+            
+            # Check for collisions with planets
+            for body in self.bodies:
+                if not isinstance(body, Star) and self.rocket.distance_to(body) < (self.rocket.radius + body.radius):
+                    # Handle collision - could be damage or landing mechanics
+                    impact_velocity = np.linalg.norm(self.rocket.velocity - body.velocity)
+                    if impact_velocity > 50:  # Hard landing
+                        self.rocket.take_damage(impact_velocity / 10)
+                    elif isinstance(body, Planet):
+                        # Successfully landed
+                        pass
+        
+        # Update bullets
+        self.bullets = [bullet for bullet in self.bullets if bullet.update(dt)]
+        
+        # Check bullet collisions with enemies
+        for bullet in self.bullets[:]:
+            for enemy in self.enemies[:]:
+                if np.linalg.norm(bullet.position - enemy.position) < (bullet.radius + enemy.radius):
+                    if enemy.take_damage():
+                        self.enemies.remove(enemy)
+                    if bullet in self.bullets:
+                        self.bullets.remove(bullet)
+                    break
+        
+        # Update enemies
+        self.time_since_enemy_spawn += dt
+        if self.time_since_enemy_spawn > 30 and len(self.enemies) < 5 and random.random() < 0.01:
+            self.spawn_enemy()
+            self.time_since_enemy_spawn = 0
+            
+        for enemy in self.enemies[:]:
+            if enemy.update(dt):
+                # Enemy firing logic
+                if enemy.can_fire() and np.linalg.norm(enemy.position - self.rocket.position) < 800:
+                    bullet = enemy.fire(self.rocket.position)
+                    if bullet:
+                        self.bullets.append(bullet)
+            else:
+                self.enemies.remove(enemy)
+        
+        # Check enemy bullet collisions with rocket
+        for bullet in self.bullets[:]:
+            if bullet.color == (255, 50, 50) and self.rocket and bullet.collision_check(self.rocket):
+                self.rocket.take_damage(10)
+                if bullet in self.bullets:
+                    self.bullets.remove(bullet)
+        
+        # Update collectibles
+        for collectible in self.collectibles[:]:
+            if not collectible.update(dt):
+                self.collectibles.remove(collectible)
+        
+        # Update active mission
+        if self.active_mission:
+            self.active_mission.update(dt, self.rocket)
+            if self.active_mission.completed:
+                self.rocket.credits += self.active_mission.reward
+                self.active_mission = None
+    
+    def spawn_enemy(self):
+        if not self.rocket:
+            return
+            
+        star = self.bodies[0]
+        spawn_distance = random.uniform(CONFIG["enemy_spawn_distance_min"], CONFIG["enemy_spawn_distance_max"])
+        angle = random.uniform(0, 2 * np.pi)
+        position = star.position + np.array([np.cos(angle), np.sin(angle)]) * spawn_distance
+        
+        # Make sure enemy is not too close to rocket
+        while np.linalg.norm(position - self.rocket.position) < 2000:
+            angle = random.uniform(0, 2 * np.pi)
+            position = star.position + np.array([np.cos(angle), np.sin(angle)]) * spawn_distance
+        
+        enemy = Enemy(position, self.rocket)
+        self.enemies.append(enemy)
+    
+    def generate_mission(self):
+        if not self.active_mission:
+            mission_type = random.choice(CONFIG["mission_types"])
+            self.active_mission = Mission(mission_type, self)
+            
+            # Add collectibles to the system if needed
+            if mission_type == "collect":
+                for obj in self.active_mission.target_objects:
+                    self.collectibles.append(obj)
+                    
+            return self.active_mission
+        return None
+    
+    def draw(self, surface, camera):
+        # Draw all celestial bodies
+        for body in self.bodies:
+            body.draw(surface, camera)
+        
+        # Draw bullets
+        for bullet in self.bullets:
+            bullet.draw(surface, camera)
+        
+        # Draw enemies
+        for enemy in self.enemies:
+            enemy.draw(surface, camera)
+        
+        # Draw collectibles
+        for collectible in self.collectibles:
+            collectible.draw(surface, camera)
+        
+        # Draw active mission elements
+        if self.active_mission:
+            self.active_mission.draw(surface, camera)
+        
+        # Draw rocket
+        if self.rocket:
+            self.rocket.draw(surface, camera)
+
+class MiniMap:
+    def __init__(self, size=CONFIG["map_size"], position=CONFIG["map_position"]):
+        self.size = size
+        self.position = position
+        self.surface = pygame.Surface((size, size))
+        self.zoom_factor = 0.01  # Adjust to change mini-map scale
+    
+    def update(self, star_system, rocket_pos):
+        self.surface.fill((20, 20, 40))
+        
+        # Draw border
+        pygame.draw.rect(self.surface, (100, 100, 100), (0, 0, self.size, self.size), 1)
+        
+        center = np.array([self.size/2, self.size/2])
+        
+        # Draw all bodies
+        for body in star_system.bodies:
+            if isinstance(body, Star):
+                color = (255, 255, 0)
+                radius = 4
+            elif isinstance(body, Planet):
+                color = body.color
+                radius = 2
+            else:  # Asteroid or other
+                continue  # Don't draw asteroids on minimap
+                
+            rel_pos = (body.position - rocket_pos) * self.zoom_factor + center
+            if 0 <= rel_pos[0] < self.size and 0 <= rel_pos[1] < self.size:
+                pygame.draw.circle(self.surface, color, rel_pos.astype(int), radius)
+        
+        # Draw enemies
+        for enemy in star_system.enemies:
+            rel_pos = (enemy.position - rocket_pos) * self.zoom_factor + center
+            if 0 <= rel_pos[0] < self.size and 0 <= rel_pos[1] < self.size:
+                pygame.draw.circle(self.surface, (255, 50, 50), rel_pos.astype(int), 2)
+        
+        # Draw rocket at center
+        pygame.draw.circle(self.surface, (0, 255, 0), center.astype(int), 3)
+    
+    def draw(self, surface):
+        surface.blit(self.surface, self.position)
+
+class UI:
+    def __init__(self):
+        self.font = pygame.font.SysFont('Arial', CONFIG["ui_font_size"])
+        self.large_font = pygame.font.SysFont('Arial', CONFIG["ui_font_size"] * 2)
+        self.mission_font = pygame.font.SysFont('Arial', CONFIG["ui_font_size"] + 2)
+    
+    def draw(self, surface, rocket, star_system, camera):
+        if rocket:
+            # Draw fuel gauge
+            fuel_pct = rocket.fuel / CONFIG["rocket_initial_fuel"]
+            fuel_width = 150
+            pygame.draw.rect(surface, (50, 50, 50), (20, 20, fuel_width, 15))
+            pygame.draw.rect(surface, (0, 200, 0), (20, 20, int(fuel_width * fuel_pct), 15))
+            fuel_text = self.font.render(f"Fuel: {int(rocket.fuel)}", True, CONFIG["ui_color"])
+            surface.blit(fuel_text, (20, 40))
+            
+            # Draw shield gauge
+            shield_pct = rocket.shields / rocket.max_shields
+            shield_width = 150
+            pygame.draw.rect(surface, (50, 50, 50), (20, 70, shield_width, 15))
+            pygame.draw.rect(surface, (100, 100, 255), (20, 70, int(shield_width * shield_pct), 15))
+            shield_text = self.font.render(f"Shields: {int(rocket.shields)}", True, CONFIG["ui_color"])
+            surface.blit(shield_text, (20, 90))
+            
+            # Draw credits
+            credits_text = self.font.render(f"Credits: {rocket.credits}", True, CONFIG["ui_color"])
+            surface.blit(credits_text, (20, 120))
+            
+            # Draw velocity
+            velocity = np.linalg.norm(rocket.velocity)
+            velocity_text = self.font.render(f"Velocity: {int(velocity)}", True, CONFIG["ui_color"])
+            surface.blit(velocity_text, (20, 150))
+            
+            # Draw zoom level
+            zoom_text = self.font.render(f"Zoom: {camera.zoom:.2f}x", True, CONFIG["ui_color"])
+            surface.blit(zoom_text, (20, 180))
+        
+        # Draw active mission info
+        if star_system.active_mission:
+            mission = star_system.active_mission
+            pygame.draw.rect(surface, (0, 0, 0, 150), (CONFIG["screen_width"] - 300, 20, 280, 150))
+            
+            mission_title = self.mission_font.render("Active Mission", True, (255, 255, 100))
+            surface.blit(mission_title, (CONFIG["screen_width"] - 290, 30))
+            
+            mission_desc = self.font.render(mission.description, True, CONFIG["ui_color"])
+            surface.blit(mission_desc, (CONFIG["screen_width"] - 290, 60))
+            
+            progress_text = self.font.render(f"Progress: {mission.completed_count}/{mission.target_count}", True, CONFIG["ui_color"])
+            surface.blit(progress_text, (CONFIG["screen_width"] - 290, 90))
+            
+            time_text = self.font.render(f"Time: {int(mission.time_remaining)}s", True, CONFIG["ui_color"])
+            surface.blit(time_text, (CONFIG["screen_width"] - 290, 120))
+            
+            reward_text = self.font.render(f"Reward: {mission.reward} credits", True, CONFIG["ui_color"])
+            surface.blit(reward_text, (CONFIG["screen_width"] - 290, 150))
+        else:
+            mission_text = self.font.render("No active mission - Press 'M' for new mission", True, CONFIG["ui_color"])
+            surface.blit(mission_text, (CONFIG["screen_width"] // 2 - mission_text.get_width() // 2, 20))
+
+class Game:
+    def __init__(self):
+        pygame.init()
+        self.screen = pygame.display.set_mode((CONFIG["screen_width"], CONFIG["screen_height"]))
+        pygame.display.set_caption("Stellar Voyager")
+        self.clock = pygame.time.Clock()
+        self.running = True
+        self.camera = Camera(CONFIG["screen_width"], CONFIG["screen_height"])
+        self.star_system = StarSystem()
+        self.ui = UI()
+        self.mini_map = MiniMap()
+        self.paused = False
+        self.game_over = False
+        
+        # Create rocket near the first planet
+        first_planet = next((body for body in self.star_system.bodies if isinstance(body, Planet)), None)
+        if first_planet:
+            start_pos = first_planet.position + np.array([first_planet.radius * 3, 0])
+            orbit_speed = np.sqrt(CONFIG["gravity_constant"] * first_planet.mass / (first_planet.radius * 3))
+            start_vel = np.array([0, orbit_speed * 0.9])
+            self.rocket = Rocket(start_pos, start_vel)
+            self.star_system.add_rocket(self.rocket)
+            self.camera.set_target(self.rocket)
+        else:
+            # Fallback position at the star
+            star = self.star_system.bodies[0]
+            start_pos = star.position + np.array([3000, 0])
+            start_vel = np.array([0, 30])
+            self.rocket = Rocket(start_pos, start_vel)
+            self.star_system.add_rocket(self.rocket)
+            self.camera.set_target(self.rocket)
+    
+    def handle_events(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+            
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    self.paused = not self.paused
+                elif event.key == pygame.K_SPACE and not self.paused:
+                    if self.rocket.can_fire():
+                        bullet = self.rocket.fire()
+                        if bullet:
+                            self.star_system.bullets.append(bullet)
+                elif event.key == pygame.K_m and not self.paused:
+                    self.star_system.generate_mission()
+                elif event.key == pygame.K_r and self.game_over:
+                    self.__init__()  # Restart game
+        
+        if self.paused or self.game_over:
+            return
+        
+        keys = pygame.key.get_pressed()
+        
+        # Rocket controls
+        if keys[pygame.K_UP] or keys[pygame.K_w]:
+            self.rocket.thrusting = True
+            self.rocket.apply_thrust(CONFIG["time_step"])
+        else:
+            self.rocket.thrusting = False
+        
+        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+            self.rocket.rotate(-1)
+        
+        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+            self.rocket.rotate(1)
+        
+        # Camera controls
+        if keys[pygame.K_EQUALS] or keys[pygame.K_KP_PLUS]:
+            self.camera.zoom_in()
+        
+        if keys[pygame.K_MINUS] or keys[pygame.K_KP_MINUS]:
+            self.camera.zoom_out()
+        
+        # Camera movement when not locked to rocket
+        if keys[pygame.K_c]:
+            self.camera.set_target(None)
+        
+        if keys[pygame.K_v]:
+            self.camera.set_target(self.rocket)
+        
+        if self.camera.target is None:
+            move_speed = CONFIG["camera_speed"] / self.camera.zoom
+            if keys[pygame.K_UP] or keys[pygame.K_w]:
+                self.camera.move(0, -move_speed)
+            if keys[pygame.K_DOWN] or keys[pygame.K_s]:
+                self.camera.move(0, move_speed)
+            if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+                self.camera.move(-move_speed, 0)
+            if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+                self.camera.move(move_speed, 0)
+    
+    def update(self):
+        if self.paused or self.game_over:
+            return
+            
+        dt = CONFIG["time_step"]
+        self.star_system.update(dt)
+        self.camera.update(dt)
+        
+        # Check if rocket is out of fuel or destroyed
+        if self.rocket:
+            if self.rocket.shields <= 0:
+                self.game_over = True
+    
+    def render(self):
+        self.screen.fill(CONFIG["background_color"])
+        
+        # Draw star system
+        self.star_system.draw(self.screen, self.camera)
+        
+        # Draw UI
+        self.ui.draw(self.screen, self.rocket, self.star_system, self.camera)
+        
+        # Draw mini-map
+        if self.rocket:
+            self.mini_map.update(self.star_system, self.rocket.position)
+            self.mini_map.draw(self.screen)
+        
+        # Draw pause overlay
+        if self.paused:
+            pause_overlay = pygame.Surface((CONFIG["screen_width"], CONFIG["screen_height"]), pygame.SRCALPHA)
+            pause_overlay.fill((0, 0, 0, 128))
+            self.screen.blit(pause_overlay, (0, 0))
+            
+            pause_text = self.ui.large_font.render("PAUSED", True, (255, 255, 255))
+            text_pos = (CONFIG["screen_width"] // 2 - pause_text.get_width() // 2, 
+                        CONFIG["screen_height"] // 2 - pause_text.get_height() // 2)
+            self.screen.blit(pause_text, text_pos)
+            
+            help_text = self.ui.font.render("Press ESC to resume", True, (255, 255, 255))
+            help_pos = (CONFIG["screen_width"] // 2 - help_text.get_width() // 2, 
+                        CONFIG["screen_height"] // 2 + pause_text.get_height())
+            self.screen.blit(help_text, help_pos)
+        
+        # Draw game over screen
+        if self.game_over:
+            game_over_overlay = pygame.Surface((CONFIG["screen_width"], CONFIG["screen_height"]), pygame.SRCALPHA)
+            game_over_overlay.fill((0, 0, 0, 192))
+            self.screen.blit(game_over_overlay, (0, 0))
+            
+            game_over_text = self.ui.large_font.render("GAME OVER", True, (255, 50, 50))
+            text_pos = (CONFIG["screen_width"] // 2 - game_over_text.get_width() // 2, 
+                        CONFIG["screen_height"] // 2 - game_over_text.get_height() // 2)
+            self.screen.blit(game_over_text, text_pos)
+            
+            restart_text = self.ui.font.render("Press R to restart", True, (255, 255, 255))
+            restart_pos = (CONFIG["screen_width"] // 2 - restart_text.get_width() // 2, 
+                           CONFIG["screen_height"] // 2 + game_over_text.get_height())
+            self.screen.blit(restart_text, restart_pos)
+        
+        pygame.display.flip()
+    
+    def run(self):
+        while self.running:
+            self.handle_events()
+            self.update()
+            self.render()
+            self.clock.tick(CONFIG["fps"])
+        
+        pygame.quit()
+        sys.exit()
+
+if __name__ == "__main__":
+    game = Game()
+    game.run()
