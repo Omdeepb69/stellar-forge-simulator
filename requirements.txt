@@ -1,0 +1,4 @@
+pygame (for visualization, user input, game loop)
+numpy (for vector math, physics calculations, handling numerical data)
+scikit-learn (for the ML model generating planet properties)
+random (for seeding procedural generation)
