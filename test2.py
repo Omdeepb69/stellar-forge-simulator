@@ -401,22 +401,25 @@ class Planet(CelestialBody):
         self.ring_color = self.generate_ring_color()
         self.surface_detail = random.random()  # Used for visual variety
         
-        # Generate moons
-        for i in range(moons):
-            moon_dist = radius * random.uniform(2.5, 4.0)
+        # --- Add moons visually (non-landable, purely atmospheric) ---
+        self.visual_moons = []
+        moon_count = random.randint(1, 3) if random.random() < 0.7 else 0  # 70% chance to have moons
+        for i in range(moon_count):
+            moon_orbit_radius = radius * random.uniform(2.5, 5.0)
+            moon_orbit_period = random.uniform(18, 45)  # seconds for a full orbit
             moon_angle = random.uniform(0, 2 * np.pi)
-            moon_pos = position + np.array([math.cos(moon_angle), math.sin(moon_angle)]) * moon_dist
-            
-            # Calculate orbital velocity for the moon
-            moon_orbit_speed = np.sqrt(CONFIG["gravity_constant"] * mass / moon_dist)
-            moon_vel_dir = np.array([-math.sin(moon_angle), math.cos(moon_angle)])
-            moon_vel = velocity + moon_vel_dir * moon_orbit_speed
-            
-            moon_radius = radius * random.uniform(0.1, 0.3)
-            moon_mass = mass * (moon_radius / radius) ** 3 * 0.8
-            moon_color = tuple(min(255, max(0, c + random.randint(-30, 30))) for c in color)
-            
-            self.moons.append(Moon(moon_pos, moon_vel, moon_mass, moon_radius, moon_color, self, f"Moon-{i+1}"))
+            moon_radius = radius * random.uniform(0.12, 0.22)
+            moon_color = tuple(min(255, max(0, c + random.randint(-40, 40))) for c in color)
+            self.visual_moons.append({
+                'orbit_radius': moon_orbit_radius,
+                'orbit_period': moon_orbit_period,
+                'angle': moon_angle,
+                'radius': moon_radius,
+                'color': moon_color,
+                'name': f"{self.name} Moon {i+1}"
+            })
+        self.visual_moon_time = random.uniform(0, 1000)
+        # --- End visual moons ---
     
     def generate_ring_color(self):
         # Generate a ring color that complements the planet color
@@ -429,6 +432,13 @@ class Planet(CelestialBody):
     
     def update(self, dt):
         super().update_position(dt)
+        
+        # Update visual moons' orbital positions
+        self.visual_moon_time += dt
+        for moon in self.visual_moons:
+            # Circular orbit for now
+            moon['angle'] += (2 * np.pi / moon['orbit_period']) * dt
+            moon['angle'] %= 2 * np.pi
         
         # Update moons
         for moon in self.moons:
@@ -560,6 +570,16 @@ class Planet(CelestialBody):
                                       (indicator_radius, indicator_radius), indicator_radius, 2)
                     surface.blit(indicator_surface, 
                                 (screen_pos[0] - indicator_radius, screen_pos[1] - indicator_radius))
+                # --- Draw visual moons ---
+                for moon in self.visual_moons:
+                    moon_angle = moon['angle']
+                    moon_orbit_radius = moon['orbit_radius'] * camera.zoom
+                    moon_pos = screen_pos + np.array([math.cos(moon_angle), math.sin(moon_angle)]) * moon_orbit_radius
+                    moon_radius = int(moon['radius'] * camera.zoom)
+                    if moon_radius < 1:
+                        moon_radius = 1
+                    pygame.draw.circle(surface, moon['color'], moon_pos.astype(int), moon_radius)
+                # --- End visual moons ---
         
         # Draw moons after planet
         for moon in self.moons:
@@ -2734,6 +2754,10 @@ class Game:
 
             # Use ML model to generate planet properties
             mass, radius, color, density, biome_type, has_rings, moons, takeoff_cost = generate_planet_properties(distance, self.central_star.mass)
+            # --- SCALE UP PLANETS ---
+            mass *= 2.5  # Increase mass for stronger gravity and visual prominence
+            radius *= 2.2  # Increase radius for larger visual size
+            # --- END SCALE UP ---
             velocity = np.array([-math.sin(angle), math.cos(angle)]) * math.sqrt(CONFIG["gravity_constant"] * self.central_star.mass / distance)
 
             # Create and add planet
@@ -3039,10 +3063,10 @@ class Game:
                                 if self.rocket.health <= 0:
                                     self.game_over = True
                             continue  # Skip further gravity/collision for this frame
-                    # --- Asteroid/Other Collisions (existing logic) ---
+                    # --- Planet Gravity Physics ---
                     if isinstance(body, Planet):
-                        planet_gravity = body.mass * CONFIG["gravity_constant"]
-                        force_magnitude = planet_gravity * self.rocket.mass / (distance ** 2)
+                        # True gravity field, smooth and strong for large planets
+                        force_magnitude = CONFIG["gravity_constant"] * self.rocket.mass * body.mass / (distance ** 2)
                         force = force_magnitude * (delta / distance)
                         self.rocket.apply_force(force)
                         # Landing prompt logic
@@ -3057,6 +3081,12 @@ class Game:
                             if not hasattr(self, 'landing_modal_active') or not self.landing_modal_active:
                                 self.landing_prompt_active = False
                                 self.landing_prompt = None
+                    elif isinstance(body, (Star, BlackHole, Wormhole, Pulsar)):
+                        # Other massive bodies also exert gravity
+                        force_magnitude = CONFIG["gravity_constant"] * self.rocket.mass * body.mass / (distance ** 2)
+                        force = force_magnitude * (delta / distance)
+                        self.rocket.apply_force(force)
+                    # Asteroids and stations do not exert gravity
                     else:
                         force_magnitude = CONFIG["gravity_constant"] * self.rocket.mass * body.mass / (distance ** 2)
                         force = force_magnitude * (delta / distance)
@@ -3836,15 +3866,17 @@ class DesertSurfaceScene(BiomeSurfaceScene):
         # --- Sand ground setup ---
         self.sand_top_y = int(self.height * 0.6)  # Player feet Y
         self.sand_height = self.height - self.sand_top_y
-        sand_scaled = pygame.transform.scale(self.sand_img, (self.sand_img.get_width(), self.sand_height))
+        # Scale sand.png to cover from sand_top_y to bottom of window, and tile horizontally
+        sand_tile_w = self.sand_img.get_width()
+        sand_scaled = pygame.transform.scale(self.sand_img, (sand_tile_w, self.sand_height))
         self.sand_tiles = []
-        tile_w = sand_scaled.get_width()
-        for i in range(22):
-            self.sand_tiles.append({'img': sand_scaled, 'x': i * tile_w, 'y': self.sand_top_y})
+        for i in range((self.width // sand_tile_w) + 3):
+            self.sand_tiles.append({'img': sand_scaled, 'x': i * sand_tile_w, 'y': self.sand_top_y})
         # --- Dune background setup ---
         dune_h = self.bg_img.get_height()
         dune_w = self.bg_img.get_width()
-        dune_y = self.sand_top_y - dune_h  # Dunes bottom aligns with sand top
+        # Position dunes so their bottom edge aligns with sand top
+        dune_y = self.sand_top_y - dune_h
         self.dune_tiles = []
         for i in range((self.width // dune_w) + 3):
             self.dune_tiles.append({'img': self.bg_img, 'x': i * dune_w, 'y': dune_y})
