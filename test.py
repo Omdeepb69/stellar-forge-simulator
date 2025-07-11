@@ -204,75 +204,58 @@ def generate_planet_properties(orbital_distance, star_mass):
     
     return mass, radius, color, density_factor, biome_type, has_rings, has_moons
 
+class ParticleSystem:
+    """System for managing visual particles."""
+    def __init__(self):
+        self.particles = []
+    def add_particle(self, particle):
+        self.particles.append(particle)
+    def update(self, dt):
+        self.particles = [p for p in self.particles if p.update(dt)]
+    def draw(self, surface, camera):
+        # Performance optimization: limit particles drawn
+        max_particles = 100
+        for i, particle in enumerate(self.particles):
+            if i >= max_particles:
+                break
+            particle.draw(surface, camera)
+    def add_star_glow(self, position, radius):
+        """Add star glow particles."""
+        for _ in range(3):
+            angle = random.uniform(0, 2 * np.pi)
+            distance = radius * random.uniform(0.8, 1.2)
+            pos = position + np.array([math.cos(angle), math.sin(angle)]) * distance
+            vel = np.array([random.uniform(-5, 5), random.uniform(-5, 5)])
+            color = (255, 255, 200, 100)
+            lifetime = random.uniform(0.5, 1.0)
+            size = random.uniform(1.0, 2.0)
+            self.add_particle(Particle(pos, vel, color, lifetime, size))
+
 class Particle:
-    """Particle system for visual effects."""
-    def __init__(self, position, velocity, color, lifetime=1.0, size=2.0, fade=True):
+    """Visual particle effect."""
+    def __init__(self, position, velocity, color, lifetime, size):
         self.position = np.array(position, dtype=float)
         self.velocity = np.array(velocity, dtype=float)
         self.color = color
-        self.initial_lifetime = lifetime
         self.lifetime = lifetime
+        self.max_lifetime = lifetime
         self.size = size
-        self.fade = fade
-    
+        self.drag = random.uniform(0.9, 0.99)
     def update(self, dt):
         self.position += self.velocity * dt
+        self.velocity *= self.drag  # Apply drag
         self.lifetime -= dt
         return self.lifetime > 0
-    
     def draw(self, surface, camera):
+        alpha = int(255 * (self.lifetime / self.max_lifetime))
+        current_color = self.color[:3] + (alpha,)
         screen_pos = camera.world_to_screen(self.position)
-        if 0 <= screen_pos[0] < camera.screen_width and 0 <= screen_pos[1] < camera.screen_height:
-            if self.fade:
-                alpha = int(255 * (self.lifetime / self.initial_lifetime))
-                size_factor = max(0.5, self.lifetime / self.initial_lifetime)
-            else:
-                alpha = 255
-                size_factor = 1.0
-                
-            color = self.color[:3] + (alpha,) if len(self.color) == 4 else self.color
-            pygame.draw.circle(surface, color, screen_pos.astype(int), int(self.size * camera.zoom * size_factor))
-
-class ParticleSystem:
-    """Manages multiple particle effects."""
-    def __init__(self):
-        self.particles = []
-    
-    def add_particle(self, particle):
-        self.particles.append(particle)
-    
-    def add_explosion(self, position, count=20, size=3.0, speed=50.0, color=(255, 150, 0)):
-        for _ in range(count):
-            angle = random.uniform(0, 2 * np.pi)
-            velocity = np.array([math.cos(angle), math.sin(angle)]) * random.uniform(0.5, 1.0) * speed
-            lifetime = random.uniform(0.5, 1.5)
-            self.add_particle(Particle(position, velocity, color, lifetime, size))
-    
-    def add_thruster_trail(self, position, direction, count=3):
-        for _ in range(count):
-            offset = np.array([random.uniform(-3, 3), random.uniform(-3, 3)])
-            velocity = -direction * random.uniform(10, 30) + offset
-            lifetime = random.uniform(0.3, 0.8)
-            size = random.uniform(1.5, 3.0)
-            color = (255, random.randint(100, 200), 0)
-            self.add_particle(Particle(position.copy(), velocity, color, lifetime, size))
-    
-    def add_star_glow(self, star_position, star_radius):
-        angle = random.uniform(0, 2 * np.pi)
-        distance = star_radius * random.uniform(1.0, 1.3)
-        position = star_position + np.array([math.cos(angle), math.sin(angle)]) * distance
-        velocity = np.array([random.uniform(-3, 3), random.uniform(-3, 3)])
-        lifetime = random.uniform(1.0, 3.0)
-        size = random.uniform(1, 3)
-        color = (255, 255, 150, 100)
-        self.add_particle(Particle(position, velocity, color, lifetime, size))
-    
-    def update(self, dt):
-        self.particles = [p for p in self.particles if p.update(dt)]
-    
-    def draw(self, surface, camera):
-        for particle in self.particles:
-            particle.draw(surface, camera)
+        screen_size = max(1, int(self.size * camera.zoom))
+        if not (0 <= screen_pos[0] < camera.screen_width and 0 <= screen_pos[1] < camera.screen_height):
+            return
+        particle_surface = pygame.Surface((screen_size * 2, screen_size * 2), pygame.SRCALPHA)
+        pygame.draw.circle(particle_surface, current_color, (screen_size, screen_size), screen_size)
+        surface.blit(particle_surface, (screen_pos[0] - screen_size, screen_pos[1] - screen_size))
 
 class CelestialBody:
     """Base class for all space objects."""
@@ -633,9 +616,6 @@ class Moon(CelestialBody):
                                           (screen_pos + offset).astype(int), int(crater_size))
 
 class Asteroid(CelestialBody):
-    def __init__(self, position, velocity, mass, radius, color, resource_type="none"):
-        super().__init__(position, velocity, mass, radius, color, "Asteroid")
-        self.resource_type = resource_type
     """Small asteroid object that can be part of an asteroid field."""
     def __init__(self, position, velocity, mass, radius, color=CONFIG["asteroid_color"], resource_type="none"):
         super().__init__(position, velocity, mass, radius, color, "Asteroid")
@@ -1340,6 +1320,15 @@ class Rocket(CelestialBody):
         self.fuel = CONFIG["rocket_initial_fuel"]
         self.max_fuel = CONFIG["rocket_initial_fuel"]
         
+        # Landing and takeoff system
+        self.landed_on_planet = None
+        self.takeoff_timer = 0
+        self.takeoff_duration = 5.0  # 5 seconds to takeoff
+        self.takeoff_fuel_cost = 100
+        self.takeoff_thrust_multiplier = 3.0  # Extra thrust during takeoff
+        self.is_taking_off = False
+        self.landing_velocity = 0  # Track landing velocity for damage
+        
         # Combat properties
         self.health = 100
         self.max_health = 100
@@ -1371,12 +1360,40 @@ class Rocket(CelestialBody):
             self.thrusting = False
             return
             
-        # Calculate thrust vector based on angle
-        thrust_vector = np.array([math.cos(self.angle), math.sin(self.angle)]) * self.thrust
-        self.apply_force(thrust_vector)
-        
-        # Consume fuel
+        # If landed on a planet, handle takeoff
+        if self.landed_on_planet:
+            if self.thrusting and self.fuel >= self.takeoff_fuel_cost:
+                self.is_taking_off = True
+                self.takeoff_timer += CONFIG["time_step"]
+                
+                # Apply takeoff thrust (stronger than normal)
+                thrust_vector = np.array([math.cos(self.angle), math.sin(self.angle)]) * self.thrust * self.takeoff_thrust_multiplier
+                self.apply_force(thrust_vector)
+                
+                # Consume takeoff fuel
+                self.fuel -= (CONFIG["fuel_consumption_rate"] * 2) / self.engine_level
+                self.fuel = max(0, self.fuel)
+                
+                # Check if takeoff is complete
+                if self.takeoff_timer >= self.takeoff_duration:
+                    self.landed_on_planet = None
+                    self.is_taking_off = False
+                    self.takeoff_timer = 0
+                    # Consume the takeoff fuel cost
+                    self.fuel -= self.takeoff_fuel_cost
+                    self.fuel = max(0, self.fuel)
+            else:
+                self.is_taking_off = False
+                self.takeoff_timer = 0
+            return
+            
+        # Normal thrust when not landed
         if self.thrusting:
+            # Calculate thrust vector based on angle
+            thrust_vector = np.array([math.cos(self.angle), math.sin(self.angle)]) * self.thrust
+            self.apply_force(thrust_vector)
+            
+            # Consume fuel
             self.fuel -= CONFIG["fuel_consumption_rate"] / self.engine_level
             self.fuel = max(0, self.fuel)
     
@@ -1695,6 +1712,28 @@ class Rocket(CelestialBody):
             flame_color = (255, random.randint(100, 200), 0)
             pygame.draw.polygon(surface, flame_color, flame_points)
         
+        # Draw takeoff progress if taking off
+        if self.is_taking_off and self.landed_on_planet:
+            progress = self.takeoff_timer / self.takeoff_duration
+            bar_width = rocket_length * 2
+            bar_height = 6
+            bar_x = screen_pos[0] - bar_width/2
+            bar_y = screen_pos[1] - rocket_length - 15
+            
+            # Background bar
+            pygame.draw.rect(surface, (50, 50, 50), (bar_x, bar_y, bar_width, bar_height))
+            # Progress bar
+            progress_width = int(bar_width * progress)
+            pygame.draw.rect(surface, (0, 255, 0), (bar_x, bar_y, progress_width, bar_height))
+            # Border
+            pygame.draw.rect(surface, (200, 200, 200), (bar_x, bar_y, bar_width, bar_height), 2)
+            
+            # Takeoff text
+            font = pygame.font.SysFont(None, 20)
+            text = font.render(f"TAKEOFF: {int(progress * 100)}%", True, (255, 255, 255))
+            text_rect = text.get_rect(center=(screen_pos[0], bar_y - 10))
+            surface.blit(text, text_rect)
+        
         # Draw shield if active
         if self.shield > 0:
             shield_radius = rocket_length * 1.5
@@ -1704,6 +1743,21 @@ class Rocket(CelestialBody):
             shield_surface = pygame.Surface((shield_radius * 2, shield_radius * 2), pygame.SRCALPHA)
             pygame.draw.circle(shield_surface, shield_color, (shield_radius, shield_radius), shield_radius, 2)
             surface.blit(shield_surface, (screen_pos[0] - shield_radius, screen_pos[1] - shield_radius))
+
+    def update(self, dt):
+        """Update rocket's position and physics."""
+        # If landed on a planet, don't update position normally
+        if self.landed_on_planet:
+            # Keep the rocket on the planet surface
+            planet = self.landed_on_planet
+            direction = (self.position - planet.position) / np.linalg.norm(self.position - planet.position)
+            self.position = planet.position + direction * (planet.radius + self.radius)
+            self.velocity = planet.velocity.copy()  # Match planet's velocity
+        else:
+            self.update_position(dt)
+        
+        # Reset landing velocity tracker
+        self.landing_velocity = np.linalg.norm(self.velocity)
 
 class Bullet:
     """Projectile fired from weapons."""
@@ -2034,62 +2088,6 @@ class Collectible:
             ]
             pygame.draw.polygon(surface, self.color, points)
 
-class ParticleSystem:
-    """System for managing visual particles."""
-    def __init__(self):
-        self.particles = []
-    
-    def add_particle(self, particle):
-        """Add a particle to the system."""
-        self.particles.append(particle)
-    
-    def update(self, dt):
-        """Update all particles in the system."""
-        self.particles = [p for p in self.particles if p.update(dt)]
-    
-    def draw(self, surface, camera):
-        """Draw all particles."""
-        for particle in self.particles:
-            particle.draw(surface, camera)
-
-class Particle:
-    """Visual particle effect."""
-    def __init__(self, position, velocity, color, lifetime, size):
-        self.position = np.array(position, dtype=float)
-        self.velocity = np.array(velocity, dtype=float)
-        self.color = color
-        self.lifetime = lifetime
-        self.max_lifetime = lifetime
-        self.size = size
-        self.drag = random.uniform(0.9, 0.99)
-    
-    def update(self, dt):
-        """Update particle position and state."""
-        self.position += self.velocity * dt
-        self.velocity *= self.drag  # Apply drag
-        self.lifetime -= dt
-        
-        return self.lifetime > 0
-    
-    def draw(self, surface, camera):
-        """Draw the particle."""
-        # Make particles fade out as they age
-        alpha = int(255 * (self.lifetime / self.max_lifetime))
-        current_color = self.color[:3] + (alpha,)
-        
-        screen_pos = camera.world_to_screen(self.position)
-        screen_size = max(1, int(self.size * camera.zoom))
-        
-        # Only draw if on screen
-        if not (0 <= screen_pos[0] < camera.screen_width and 
-                0 <= screen_pos[1] < camera.screen_height):
-            return
-            
-        # Draw as circle with transparency
-        particle_surface = pygame.Surface((screen_size * 2, screen_size * 2), pygame.SRCALPHA)
-        pygame.draw.circle(particle_surface, current_color, (screen_size, screen_size), screen_size)
-        surface.blit(particle_surface, (screen_pos[0] - screen_size, screen_pos[1] - screen_size))
-
 class Background:
     """Parallax star field background."""
     def __init__(self, width, height):
@@ -2238,6 +2236,26 @@ class UI:
                     f"Time remaining: {int(rocket.mission_timer)}s", 
                     True, (255, 100, 100) if rocket.mission_timer < 10 else (200, 200, 200))
                 surface.blit(timer_text, (10, mission_y + 65))
+        
+        # Draw takeoff instructions if landed on planet
+        if rocket.landed_on_planet:
+            takeoff_y = 220
+            takeoff_title = self.font.render("LANDED ON PLANET", True, (255, 255, 0))
+            surface.blit(takeoff_title, (10, takeoff_y))
+            
+            takeoff_instructions = self.small_font.render(
+                "Hold SPACE + W for 5 seconds to takeoff", True, (200, 200, 200))
+            surface.blit(takeoff_instructions, (10, takeoff_y + 25))
+            
+            fuel_cost_text = self.small_font.render(
+                f"Takeoff cost: {rocket.takeoff_fuel_cost} fuel", True, (255, 100, 100))
+            surface.blit(fuel_cost_text, (10, takeoff_y + 45))
+            
+            if rocket.is_taking_off:
+                progress = rocket.takeoff_timer / rocket.takeoff_duration
+                progress_text = self.small_font.render(
+                    f"Takeoff progress: {int(progress * 100)}%", True, (0, 255, 0))
+                surface.blit(progress_text, (10, takeoff_y + 65))
     
     def draw_minimap(self, surface, rocket, celestial_bodies, camera):
         """Draw a minimap of nearby objects."""
@@ -2653,7 +2671,6 @@ class Game:
         
         # Set up game objects
         self.camera = Camera(self.screen_width, self.screen_height)
-        self.rocket = Rocket([0, 0])
         self.celestial_bodies = []
         self.space_stations = []
         self.background = Background(8000, 8000)
@@ -2664,6 +2681,10 @@ class Game:
         self.nebulae = []
         self.particle_system = ParticleSystem()
         
+        # Generate universe first, then spawn rocket on a planet
+        self.generate_universe()
+        self.spawn_rocket_on_planet()
+        
         # Game state
         self.running = True
         self.paused = False
@@ -2671,7 +2692,6 @@ class Game:
         self.selected_target = None
         self.target_distance = 0
         self.scan_timer = 0
-        self.generate_universe()
         
         # Set camera to follow rocket
         self.camera.set_target(self.rocket)
@@ -2699,52 +2719,18 @@ class Game:
             distance = 2000 + i * 1200
             angle = random.uniform(0, 2 * np.pi)
             position = np.array([math.cos(angle), math.sin(angle)]) * distance
-            
-            # Planet properties
-            mass = random.uniform(50000, 200000)
-            radius = int(30 + mass / 5000)
-            
-            # Create random color
-            r = random.randint(50, 200)
-            g = random.randint(50, 200)
-            b = random.randint(50, 200)
-            color = (r, g, b)
-            
-            # Add some variation
-            has_rings = random.random() < 0.3
-            has_atmosphere = random.random() < 0.7
-            
-            # Initial velocity for orbit
-            orbit_speed = math.sqrt(CONFIG["gravity_constant"] * self.central_star.mass / distance)
-            velocity = np.array([-math.sin(angle), math.cos(angle)]) * orbit_speed
-            
+
+            # Use ML model to generate planet properties
+            mass, radius, color, density, biome_type, has_rings, moons = generate_planet_properties(distance, self.central_star.mass)
+            velocity = np.array([-math.sin(angle), math.cos(angle)]) * math.sqrt(CONFIG["gravity_constant"] * self.central_star.mass / distance)
+
             # Create and add planet
-            planet = Planet(position, velocity, mass, radius, color, name, has_rings, has_atmosphere)
+            planet = Planet(position, velocity, mass, radius, color, density, biome_type, has_rings, moons, name)
             self.celestial_bodies.append(planet)
-            
-            # Add moons to some planets
-            if random.random() < 0.6:
-                num_moons = random.randint(1, 3)
-                for j in range(num_moons):
-                    moon_distance = radius * 2 + j * radius
-                    moon_angle = random.uniform(0, 2 * np.pi)
-                    moon_pos = position + np.array([math.cos(moon_angle), math.sin(moon_angle)]) * moon_distance
-                    
-                    moon_mass = mass * 0.01
-                    moon_radius = radius * 0.2
-                    
-                    # Moon orbital velocity
-                    moon_orbit_speed = math.sqrt(CONFIG["gravity_constant"] * planet.mass / moon_distance)
-                    moon_velocity = velocity + np.array([-math.sin(moon_angle), math.cos(moon_angle)]) * moon_orbit_speed
-                    
-                    # Create moon
-                    moon_color = (min(r + 30, 255), min(g + 30, 255), min(b + 30, 255))
-                    moon = CelestialBody(moon_pos, moon_velocity, moon_mass, moon_radius, moon_color, f"{name} Moon {j+1}")
-                    self.celestial_bodies.append(moon)
         
         # Create asteroid belt
         asteroid_belt_distance = 8000
-        num_asteroids = 200
+        num_asteroids = 100  # Reduced for better performance
         
         for i in range(num_asteroids):
             angle = random.uniform(0, 2 * np.pi)
@@ -2819,7 +2805,7 @@ class Game:
             self.celestial_bodies.append(nebula)
         
         # Create some initial enemies
-        for i in range(5):
+        for i in range(3):  # Reduced for better performance
             angle = random.uniform(0, 2 * np.pi)
             distance = random.uniform(2000, 6000)
             position = np.array([math.cos(angle), math.sin(angle)]) * distance
@@ -2828,7 +2814,7 @@ class Game:
             self.enemies.append(enemy)
         
         # Create some initial collectibles
-        for i in range(10):
+        for i in range(5):  # Reduced for better performance
             angle = random.uniform(0, 2 * np.pi)
             distance = random.uniform(1000, 4000)
             position = np.array([math.cos(angle), math.sin(angle)]) * distance
@@ -2836,6 +2822,51 @@ class Game:
             item_type = random.choice(["fuel", "health", "shield", "credits"])
             collectible = Collectible(position, item_type)
             self.collectibles.append(collectible)
+    
+    def spawn_rocket_on_planet(self):
+        """Spawn the rocket on the surface of a random planet."""
+        # Find a suitable planet (not too close to the star)
+        suitable_planets = []
+        for body in self.celestial_bodies:
+            if isinstance(body, Planet):
+                distance_from_star = np.linalg.norm(body.position - self.central_star.position)
+                if distance_from_star > 2000:  # Avoid planets too close to star
+                    suitable_planets.append(body)
+        
+        if not suitable_planets:
+            # Fallback: spawn near the first planet
+            if self.celestial_bodies:
+                first_planet = None
+                for body in self.celestial_bodies:
+                    if isinstance(body, Planet):
+                        first_planet = body
+                        break
+                
+                if first_planet:
+                    # Spawn on planet surface
+                    spawn_angle = random.uniform(0, 2 * np.pi)
+                    spawn_direction = np.array([math.cos(spawn_angle), math.sin(spawn_angle)])
+                    spawn_position = first_planet.position + spawn_direction * (first_planet.radius + 10)
+                    self.rocket = Rocket(spawn_position, first_planet.velocity.copy())
+                    self.rocket.landed_on_planet = first_planet
+                else:
+                    # Fallback: spawn at origin
+                    self.rocket = Rocket([0, 0])
+            else:
+                # Fallback: spawn at origin
+                self.rocket = Rocket([0, 0])
+        else:
+            # Choose a random suitable planet
+            chosen_planet = random.choice(suitable_planets)
+            
+            # Spawn on planet surface
+            spawn_angle = random.uniform(0, 2 * np.pi)
+            spawn_direction = np.array([math.cos(spawn_angle), math.sin(spawn_angle)])
+            spawn_position = chosen_planet.position + spawn_direction * (chosen_planet.radius + 10)
+            
+            # Create rocket with planet's velocity (so it stays on the planet)
+            self.rocket = Rocket(spawn_position, chosen_planet.velocity.copy())
+            self.rocket.landed_on_planet = chosen_planet
     
     def handle_input(self):
         """Handle player input."""
@@ -2961,17 +2992,29 @@ class Game:
                     
                     # Check for collision with planet
                     if distance < body.radius + self.rocket.radius:
-                        # Apply damage based on impact velocity
+                        # Calculate relative velocity for impact damage
                         relative_vel = np.linalg.norm(self.rocket.velocity - body.velocity)
-                        if relative_vel > 10:
-                            impact_damage = int(relative_vel * 2)
-                            self.rocket.take_damage(impact_damage)
-                            
-                            # Add impact particles
-                            self.create_explosion(self.rocket.position, 20)
                         
-                        # Reflect velocity (bounce)
-                        self.rocket.velocity = body.velocity - 0.5 * self.rocket.velocity
+                        # If not already landed on this planet
+                        if self.rocket.landed_on_planet != body:
+                            # Check if this is a hard landing (high speed)
+                            if relative_vel > 30:
+                                # Apply damage and create explosion
+                                self.rocket.take_damage(50)
+                                self.create_explosion(self.rocket.position, 30)
+                                
+                                # Bounce off the planet
+                                normal = (self.rocket.position - body.position) / distance
+                                self.rocket.velocity = self.rocket.velocity - 2 * np.dot(self.rocket.velocity, normal) * normal
+                                self.rocket.velocity *= 0.3  # Reduce velocity after impact
+                            else:
+                                # Soft landing - land on the planet
+                                self.rocket.landed_on_planet = body
+                                self.rocket.velocity = body.velocity.copy()
+                                
+                                # Position rocket on planet surface
+                                direction = (self.rocket.position - body.position) / distance
+                                self.rocket.position = body.position + direction * (body.radius + self.rocket.radius)
                     else:
                         # Apply gravity
                         force_magnitude = CONFIG["gravity_constant"] * self.rocket.mass * body.mass / distance_sq
@@ -3036,8 +3079,16 @@ class Game:
                             force = force_magnitude * (delta / distance)
                             body.apply_force(force)
                 
-                # Update position
-                body.update(dt)
+                # Update position - handle different update method signatures
+                if isinstance(body, Star):
+                    body.update(dt, self.particle_system)
+                elif isinstance(body, (BlackHole, Wormhole, Pulsar)):
+                    body.update(dt, self.particle_system)
+                elif isinstance(body, Planet):
+                    body.update(dt)
+                else:
+                    # For other celestial bodies, just update position
+                    body.update_position(dt)
         
         # Update bullets
         self.bullets = [b for b in self.bullets if b.update(dt)]
@@ -3154,7 +3205,7 @@ class Game:
     
     def spawn_enemies(self):
         """Spawn enemies periodically."""
-        if len(self.enemies) < CONFIG["max_enemies"] and random.random() < 0.01:
+        if len(self.enemies) < CONFIG["enemy_count_max"] and random.random() < 0.01:
             # Spawn away from player but in view
             angle = random.uniform(0, 2 * np.pi)
             distance = random.uniform(1000, 2000)
@@ -3203,35 +3254,50 @@ class Game:
         self.screen.fill(CONFIG["background_color"])
         self.background.draw(self.screen, self.camera)
 
-        # Draw celestial bodies
+        # Performance optimization: only render objects within render distance
+        render_distance = 2000 * self.camera.zoom
+        
+        # Draw celestial bodies within render distance
         for body in self.celestial_bodies:
             if isinstance(body, CelestialBody):
-                body.draw(self.screen, self.camera)
+                distance = np.linalg.norm(body.position - self.rocket.position)
+                if distance < render_distance:
+                    body.draw(self.screen, self.camera)
 
-        # Draw collectibles
+        # Draw collectibles within render distance
         for item in self.collectibles:
-            item.draw(self.screen, self.camera)
+            distance = np.linalg.norm(item.position - self.rocket.position)
+            if distance < render_distance:
+                item.draw(self.screen, self.camera)
 
-        # Draw enemies
+        # Draw enemies within render distance
         for enemy in self.enemies:
-            enemy.draw(self.screen, self.camera)
+            distance = np.linalg.norm(enemy.position - self.rocket.position)
+            if distance < render_distance:
+                enemy.draw(self.screen, self.camera)
 
-        # Draw bullets
+        # Draw bullets within render distance
         for bullet in self.bullets:
-            bullet.draw(self.screen, self.camera)
+            distance = np.linalg.norm(bullet.position - self.rocket.position)
+            if distance < render_distance:
+                bullet.draw(self.screen, self.camera)
 
-        # Draw rocket
+        # Draw rocket (always visible)
         self.rocket.draw(self.screen, self.camera)
 
-        # Draw nebulae
+        # Draw nebulae within render distance
         for nebula in self.nebulae:
-            nebula.draw(self.screen, self.camera)
+            distance = np.linalg.norm(nebula.position - self.rocket.position)
+            if distance < render_distance:
+                nebula.draw(self.screen, self.camera)
 
-        # Draw space stations
+        # Draw space stations within render distance
         for station in self.space_stations:
-            station.draw(self.screen, self.camera)
+            distance = np.linalg.norm(station.position - self.rocket.position)
+            if distance < render_distance:
+                station.draw(self.screen, self.camera)
 
-        # Draw particles
+        # Draw particles (limited for performance)
         self.particle_system.draw(self.screen, self.camera)
 
         # Draw UI
