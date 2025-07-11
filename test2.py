@@ -82,7 +82,7 @@ CONFIG = {
     "space_station_count": 2,  # Number of space stations in the system
     "debris_count": 3,  # Number of debris fields
     "debris_pieces_per_field": 20,
-    "quest_line_length": 5,  # Number of sequential storyline missions
+    "quest_line_length": 5,  # Number of sequential storyline missions,
 }
 
 # Story/Quest line for the game
@@ -527,10 +527,10 @@ class Planet(CelestialBody):
                         cap_color = (220, 230, 255)
                         cap_size = screen_radius * 0.4
                         pygame.draw.circle(surface, cap_color, 
-                                          (screen_pos[0], screen_pos[1] - screen_radius * 0.6).astype(int), 
+                                          tuple(map(int, (screen_pos[0], screen_pos[1] - screen_radius * 0.6))), 
                                           int(cap_size))
                         pygame.draw.circle(surface, cap_color, 
-                                          (screen_pos[0], screen_pos[1] + screen_radius * 0.6).astype(int), 
+                                          tuple(map(int, (screen_pos[0], screen_pos[1] + screen_radius * 0.6))), 
                                           int(cap_size))
                     
                     elif self.biome_type == "ocean":
@@ -1363,176 +1363,141 @@ class Rocket(CelestialBody):
         # Trajectory prediction
         self.trajectory_points = []
         self.trajectory_update_timer = 0
-    
-    def apply_thrust(self):
-        """Apply thrust in current direction."""
-        if self.fuel <= 0:
-            self.thrusting = False
+        # --- Rocket sprite assets ---
+        self._load_sprites()
+        self.flame_anim_index = 0
+        self.flame_anim_timer = 0
+        self.flame_anim_speed = 0.08  # seconds per frame
+    def _load_sprites(self):
+        import os
+        asset_dir = os.path.join("assets", "rocket")
+        scale_factor = 2.0
+        try:
+            img = pygame.image.load(os.path.join(asset_dir, "rocket.png")).convert_alpha()
+            # Rotate 90° clockwise so nose points upward
+            img = pygame.transform.rotate(img, -90)
+            w, h = img.get_size()
+            self.rocket_img = pygame.transform.scale(img, (int(w * scale_factor), int(h * scale_factor)))
+        except Exception:
+            self.rocket_img = None
+        self.flame_imgs = []
+        for fname in ["leftflame.png", "centreflame.png", "rightflame.png", "centreflame.png"]:
+            try:
+                img = pygame.image.load(os.path.join(asset_dir, fname)).convert_alpha()
+                w, h = img.get_size()
+                img_scaled = pygame.transform.scale(img, (int(w * scale_factor), int(h * scale_factor)))
+            except Exception:
+                img_scaled = None
+            self.flame_imgs.append(img_scaled)
+    def draw(self, surface, camera):
+        screen_pos = camera.world_to_screen(self.position)
+        screen_radius = max(3, int(self.radius * camera.zoom))
+        if not (-screen_radius < screen_pos[0] < camera.screen_width + screen_radius and \
+                -screen_radius < screen_pos[1] < camera.screen_height + screen_radius):
             return
-            
-        # If landed on a planet, handle takeoff
+        direction = np.array([math.cos(self.angle), math.sin(self.angle)])
+        rocket_length = screen_radius * 3
+        # --- Sprite-based rendering ---
+        if self.rocket_img:
+            # Draw rocket body
+            rocket_scale = rocket_length / self.rocket_img.get_height()
+            rocket_img_scaled = pygame.transform.rotozoom(self.rocket_img, -math.degrees(self.angle), rocket_scale)
+            rocket_rect = rocket_img_scaled.get_rect(center=screen_pos)
+            surface.blit(rocket_img_scaled, rocket_rect)
+            # Draw basic flame if thrusting
+            if self.thrusting and self.fuel > 0:
+                # Flame at the tail (opposite to direction)
+                flame_offset = -direction * rocket_length * 0.5
+                flame_pos = screen_pos + flame_offset
+                # Flicker effect
+                flame_length = rocket_length * 0.7 * (0.8 + 0.4 * (pygame.time.get_ticks() % 200) / 200)
+                flame_width = rocket_length * 0.3
+                flame_color = (255, random.randint(120, 200), 0)
+                flame_points = [
+                    flame_pos + direction * flame_length * 0.2,
+                    flame_pos - direction * flame_length,
+                    flame_pos + np.array([-direction[1], direction[0]]) * flame_width * 0.5,
+                    flame_pos + np.array([direction[1], -direction[0]]) * flame_width * 0.5
+                ]
+                pygame.draw.polygon(surface, flame_color, [p.astype(int) for p in flame_points])
+        else:
+            # Fallback: draw polygon rocket
+            nose = screen_pos + direction * rocket_length
+            left_wing = screen_pos - direction * rocket_length/2 + direction * rocket_width
+            right_wing = screen_pos - direction * rocket_length/2 - direction * rocket_width
+            tail = screen_pos - direction * rocket_length/2
+            color = self.color
+            if self.damage_flash_timer > 0:
+                flash_intensity = min(255, int(255 * self.damage_flash_timer / CONFIG["damage_visual_time"]))
+                color = (255, flash_intensity, flash_intensity)
+            pygame.draw.polygon(surface, color, [nose, left_wing, tail, right_wing])
+            if self.thrusting and self.fuel > 0:
+                flame_length = rocket_length * random.uniform(0.7, 1.0)
+                flame_points = [
+                    tail,
+                    tail - direction * flame_length + direction * rocket_width/2,
+                    tail - direction * flame_length * 1.2,
+                    tail - direction * flame_length - direction * rocket_width/2
+                ]
+                flame_color = (255, random.randint(100, 200), 0)
+                pygame.draw.polygon(surface, flame_color, flame_points)
+        # Draw takeoff progress if taking off
+        if self.is_taking_off and self.landed_on_planet:
+            progress = self.takeoff_timer / self.takeoff_duration
+            bar_width = rocket_length * 2
+            bar_height = 6
+            bar_x = screen_pos[0] - bar_width/2
+            bar_y = screen_pos[1] - rocket_length - 15
+            pygame.draw.rect(surface, (50, 50, 50), (bar_x, bar_y, bar_width, bar_height))
+            progress_width = int(bar_width * progress)
+            pygame.draw.rect(surface, (0, 255, 0), (bar_x, bar_y, progress_width, bar_height))
+            pygame.draw.rect(surface, (200, 200, 200), (bar_x, bar_y, bar_width, bar_height), 2)
+            font = pygame.font.SysFont(None, 20)
+            text = font.render(f"TAKEOFF: {int(progress * 100)}%", True, (255, 255, 255))
+            text_rect = text.get_rect(center=(screen_pos[0], bar_y - 10))
+            surface.blit(text, text_rect)
+        # Draw shield if active
+        if self.shield > 0:
+            shield_radius = rocket_length * 1.5
+            shield_alpha = int(100 * (self.shield / self.max_shield) + 50)
+            shield_color = (100, 150, 255, shield_alpha)
+            shield_surface = pygame.Surface((shield_radius * 2, shield_radius * 2), pygame.SRCALPHA)
+            pygame.draw.circle(shield_surface, shield_color, (shield_radius, shield_radius), shield_radius, 2)
+            surface.blit(shield_surface, (screen_pos[0] - shield_radius, screen_pos[1] - shield_radius))
+
+    def update(self, dt):
+        """Update rocket's position and physics."""
         if self.landed_on_planet:
-            if self.thrusting and self.fuel >= self.takeoff_fuel_cost:
-                self.is_taking_off = True
-                self.takeoff_timer += CONFIG["time_step"]
-                
-                # Apply takeoff thrust (stronger than normal)
-                thrust_vector = np.array([math.cos(self.angle), math.sin(self.angle)]) * self.thrust * self.takeoff_thrust_multiplier
-                self.apply_force(thrust_vector)
-                
-                # Consume takeoff fuel
-                self.fuel -= (CONFIG["fuel_consumption_rate"] * 2) / self.engine_level
-                self.fuel = max(0, self.fuel)
-                
-                # Check if takeoff is complete
-                if self.takeoff_timer >= self.takeoff_duration:
+            planet = self.landed_on_planet
+            direction = (self.position - planet.position) / np.linalg.norm(self.position - planet.position)
+            self.position = planet.position + direction * (planet.radius + self.radius)
+            self.velocity = planet.velocity.copy()
+            # Takeoff logic: hold Up or W for 2 seconds
+            keys = pygame.key.get_pressed()
+            if keys[pygame.K_w] or keys[pygame.K_UP]:
+                if not self.is_taking_off:
+                    self.is_taking_off = True
+                    self.takeoff_timer = 0
+                self.takeoff_timer += dt
+                if self.takeoff_timer >= 2.0 and self.fuel >= self.takeoff_fuel_cost:
+                    # Launch!
+                    self.fuel -= self.takeoff_fuel_cost
                     self.landed_on_planet = None
                     self.is_taking_off = False
                     self.takeoff_timer = 0
-                    # Consume the takeoff fuel cost
-                    self.fuel -= self.takeoff_fuel_cost
-                    self.fuel = max(0, self.fuel)
+                    # Give initial upward velocity
+                    self.velocity = direction * self.thrust * self.takeoff_thrust_multiplier / self.mass
             else:
                 self.is_taking_off = False
                 self.takeoff_timer = 0
-            return
-            
-        # Normal thrust when not landed
-        if self.thrusting:
-            # Calculate thrust vector based on angle
-            thrust_vector = np.array([math.cos(self.angle), math.sin(self.angle)]) * self.thrust
-            self.apply_force(thrust_vector)
-            
-            # Consume fuel
-            self.fuel -= CONFIG["fuel_consumption_rate"] / self.engine_level
-            self.fuel = max(0, self.fuel)
-    
-    def update_rotation(self, dt):
-        """Update rocket rotation."""
-        if self.turning_left:
-            self.angle -= self.rotation_speed * dt
-        if self.turning_right:
-            self.angle += self.rotation_speed * dt
-    
-    def fire_weapon(self, bullets):
-        """Fire the rocket's weapon."""
-        if self.fire_rate_timer > 0:
-            return
-            
-        # Calculate bullet direction and position
-        direction = np.array([math.cos(self.angle), math.sin(self.angle)])
-        bullet_pos = self.position + direction * (self.radius * 1.5)
-        bullet_vel = self.velocity + direction * CONFIG["bullet_speed"]
-        
-        # Create bullet with properties based on weapon level
-        damage = 10 * self.weapon_level
-        size = 2 + self.weapon_level * 0.5
-        
-        bullet = Bullet(bullet_pos, bullet_vel, damage, self.angle, size)
-        bullets.append(bullet)
-        
-        # Set fire rate cooldown
-        self.fire_rate_timer = CONFIG["rocket_fire_rate"] / self.weapon_level
-    
-    def take_damage(self, amount):
-        """Handle damage to the rocket."""
-        # Apply shields first if available
-        if self.shield > 0:
-            if self.shield >= amount:
-                self.shield -= amount
-                amount = 0
-            else:
-                amount -= self.shield
-                self.shield = 0
-        
-        # Apply remaining damage to health
-        if amount > 0:
-            self.health -= amount
-            self.damage_flash_timer = CONFIG["damage_visual_time"]
-    
-    def collect_item(self, item):
-        """Collect an item."""
-        if item.type == "fuel":
-            self.fuel = min(self.max_fuel, self.fuel + item.value)
-        elif item.type == "health":
-            self.health = min(self.max_health, self.health + item.value)
-        elif item.type == "shield":
-            self.shield = min(self.max_shield, self.shield + item.value)
-        elif item.type == "credits":
-            self.credits += item.value
+            self.landing_velocity = np.linalg.norm(self.velocity)
         else:
-            self.collected_items.append(item)
-    
-    def update_mission(self, dt):
-        """Update current mission status."""
-        if not self.current_mission:
-            return
-            
-        # Update mission timer
-        if self.current_mission.get("time_limit", 0) > 0:
-            self.mission_timer -= dt 
-            if self.mission_timer <= 0:
-                self.fail_mission("Time expired")
-                return
-        
-        # Check mission objectives based on type
-        if self.current_mission["type"] == "collect":
-            # Check if collected all required items
-            if self.mission_progress >= self.current_mission["target_count"]:
-                self.complete_mission()
-        
-        elif self.current_mission["type"] == "destroy":
-            # Check if destroyed all targets
-            if self.mission_progress >= self.current_mission["target_count"]:
-                self.complete_mission()
-        
-        elif self.current_mission["type"] == "explore":
-            # Check if explored all locations
-            discovered_targets = 0
-            for target in self.mission_targets:
-                if target.get("discovered", False):
-                    discovered_targets += 1
-            
-            if discovered_targets >= self.current_mission["target_count"]:
-                self.complete_mission()
-    
-    def complete_mission(self):
-        """Handle mission completion."""
-        if not self.current_mission:
-            return
-            
-        # Award credits
-        self.credits += self.current_mission["reward"]
-        
-        # If this was a story quest, advance the story
-        if self.current_quest and self.current_quest["id"] == self.current_mission.get("quest_id"):
-            self.completed_quests.append(self.current_quest)
-            
-            # Find next quest in storyline
-            next_quest_id = self.current_quest["id"] + 1
-            for quest in STORY["quests"]:
-                if quest["id"] == next_quest_id:
-                    self.current_quest = quest
-                    break
-            else:
-                # No more quests
-                self.current_quest = None
-        
-        # Clear current mission
-        self.current_mission = None
-        self.mission_targets = []
-        self.mission_progress = 0
-    
-    def fail_mission(self, reason):
-        """Handle mission failure."""
-        # Just clear the mission, maybe with penalty later
-        self.current_mission = None
-        self.mission_targets = []
-    
+            self.update_position(dt)
+            self.landing_velocity = np.linalg.norm(self.velocity)
+
     def accept_quest(self, quest):
         """Accept a story quest."""
         self.current_quest = quest
-        
         # Create mission from quest
         self.current_mission = {
             "type": quest["mission_type"],
@@ -1542,232 +1507,191 @@ class Rocket(CelestialBody):
             "quest_id": quest["id"],
             "time_limit": 0  # Story quests typically don't have time limits
         }
-        
-        # Generate mission targets based on type
         self.generate_mission_targets()
-    
+
     def accept_mission(self, mission):
         """Accept a standard mission."""
         self.current_mission = mission
         self.mission_progress = 0
         self.mission_timer = mission.get("time_limit", 0)
-        
-        # Generate mission targets
         self.generate_mission_targets()
-    
+
     def generate_mission_targets(self):
         """Generate targets for the current mission."""
         if not self.current_mission:
             return
-            
         self.mission_targets = []
         target_count = self.current_mission["target_count"]
-        
         if self.current_mission["type"] == "collect":
-            # Generate collectible items
             for i in range(target_count):
-                # Place items in reasonable locations
                 angle = random.uniform(0, 2 * np.pi)
                 distance = random.uniform(1000, 5000)
                 position = self.position + np.array([math.cos(angle), math.sin(angle)]) * distance
-                
                 self.mission_targets.append(Collectible(position, "mission_item"))
-        
         elif self.current_mission["type"] == "destroy":
-            # Generate enemy targets
             for i in range(target_count):
                 angle = random.uniform(0, 2 * np.pi)
                 distance = random.uniform(1000, 4000)
                 position = self.position + np.array([math.cos(angle), math.sin(angle)]) * distance
-                
-                # Create stronger enemies for higher-level missions
                 hp_boost = 0
                 if self.current_quest:
                     hp_boost = self.current_quest["id"] * 2
-                
                 enemy = Enemy(position, health=CONFIG["enemy_health"] + hp_boost)
                 self.mission_targets.append(enemy)
-        
         elif self.current_mission["type"] == "explore":
-            # Generate locations to explore
             for i in range(target_count):
                 angle = random.uniform(0, 2 * np.pi)
                 distance = random.uniform(2000, 8000)
                 position = self.position + np.array([math.cos(angle), math.sin(angle)]) * distance
-                
-                # Create exploration marker
                 self.mission_targets.append({
                     "position": position,
                     "radius": 300,
                     "discovered": False,
                     "name": f"Unknown Location {i+1}"
                 })
-        
         elif self.current_mission["type"] == "deliver":
-            # Generate delivery locations
             for i in range(target_count):
                 angle = random.uniform(0, 2 * np.pi)
                 distance = random.uniform(3000, 10000)
                 position = self.position + np.array([math.cos(angle), math.sin(angle)]) * distance
-                
                 self.mission_targets.append({
                     "position": position,
                     "radius": 300,
                     "delivered": False,
                     "name": f"Outpost {i+1}"
                 })
-    
-    def update_trajectory(self, celestial_bodies, dt):
-        """Update predicted trajectory based on current velocity and gravity."""
-        self.trajectory_update_timer += dt
-        if self.trajectory_update_timer < 0.5:  # Only update every half second
-            return
-            
-        self.trajectory_update_timer = 0
-        self.trajectory_points = []
-        
-        # Create a copy of the rocket for prediction
-        pred_pos = self.position.copy()
-        pred_vel = self.velocity.copy()
-        
-        # Predict trajectory points
-        for _ in range(CONFIG["trajectory_length"]):
-            # Calculate gravity influence
-            total_force = np.zeros(2, dtype=float)
-            for body in celestial_bodies:
-                if isinstance(body, CelestialBody) and body != self:
-                    # Calculate gravitational force
-                    body_pos = body.position
-                    delta = body_pos - pred_pos
-                    distance_sq = np.dot(delta, delta)
-                    if distance_sq > 0:
-                        distance = np.sqrt(distance_sq)
-                        force_magnitude = CONFIG["gravity_constant"] * self.mass * body.mass / distance_sq
-                        force = force_magnitude * (delta / distance)
-                        total_force += force
-            
-            # Update prediction
-            pred_acc = total_force / self.mass
-            pred_vel += pred_acc * CONFIG["time_step"] * 2  # Larger time step for prediction
-            pred_pos += pred_vel * CONFIG["time_step"] * 2
-            
-            # Store point
-            self.trajectory_points.append(pred_pos.copy())
-    
-    def draw_trajectory(self, surface, camera):
-        """Draw predicted trajectory path."""
-        if len(self.trajectory_points) < 2:
-            return
-            
-        # Convert world points to screen points
-        screen_points = [camera.world_to_screen(p).astype(int) for p in self.trajectory_points]
-        
-        # Draw trajectory as connected line segments with fading color
-        for i in range(len(screen_points) - 1):
-            alpha = 255 - int(200 * i / len(screen_points))
-            color = CONFIG["trajectory_color"][:3] + (alpha,)
-            
-            start = screen_points[i]
-            end = screen_points[i + 1]
-            
-            # Skip if offscreen
-            if not (0 <= start[0] < camera.screen_width and 0 <= start[1] < camera.screen_height) and \
-               not (0 <= end[0] < camera.screen_width and 0 <= end[1] < camera.screen_height):
-                continue
-                
-            pygame.draw.line(surface, color, start, end, 2)
-    
-    def draw(self, surface, camera):
-        """Draw the rocket."""
-        screen_pos = camera.world_to_screen(self.position)
-        screen_radius = max(3, int(self.radius * camera.zoom))
-        
-        if not (-screen_radius < screen_pos[0] < camera.screen_width + screen_radius and \
-                -screen_radius < screen_pos[1] < camera.screen_height + screen_radius):
-            return
-        
-        # Calculate points for rocket shape
-        direction = np.array([math.cos(self.angle), math.sin(self.angle)])
-        right = np.array([-direction[1], direction[0]])  # Perpendicular to direction
-        
-        rocket_length = screen_radius * 3
-        rocket_width = screen_radius * 1.5
-        
-        # Define rocket shape points
-        nose = screen_pos + direction * rocket_length
-        left_wing = screen_pos - direction * rocket_length/2 + right * rocket_width
-        right_wing = screen_pos - direction * rocket_length/2 - right * rocket_width
-        tail = screen_pos - direction * rocket_length/2
-        
-        # Draw rocket shape
-        rocket_points = [nose, left_wing, tail, right_wing]
-        
-        # Flash effect when taking damage
-        color = self.color
-        if self.damage_flash_timer > 0:
-            flash_intensity = min(255, int(255 * self.damage_flash_timer / CONFIG["damage_visual_time"]))
-            color = (255, flash_intensity, flash_intensity)
-        
-        pygame.draw.polygon(surface, color, rocket_points)
-        
-        # Draw engine flame when thrusting
-        if self.thrusting and self.fuel > 0:
-            flame_length = rocket_length * random.uniform(0.7, 1.0)
-            flame_points = [
-                tail,
-                tail - direction * flame_length + right * rocket_width/2,
-                tail - direction * flame_length * 1.2,
-                tail - direction * flame_length - right * rocket_width/2
-            ]
-            flame_color = (255, random.randint(100, 200), 0)
-            pygame.draw.polygon(surface, flame_color, flame_points)
-        
-        # Draw takeoff progress if taking off
-        if self.is_taking_off and self.landed_on_planet:
-            progress = self.takeoff_timer / self.takeoff_duration
-            bar_width = rocket_length * 2
-            bar_height = 6
-            bar_x = screen_pos[0] - bar_width/2
-            bar_y = screen_pos[1] - rocket_length - 15
-            
-            # Background bar
-            pygame.draw.rect(surface, (50, 50, 50), (bar_x, bar_y, bar_width, bar_height))
-            # Progress bar
-            progress_width = int(bar_width * progress)
-            pygame.draw.rect(surface, (0, 255, 0), (bar_x, bar_y, progress_width, bar_height))
-            # Border
-            pygame.draw.rect(surface, (200, 200, 200), (bar_x, bar_y, bar_width, bar_height), 2)
-            
-            # Takeoff text
-            font = pygame.font.SysFont(None, 20)
-            text = font.render(f"TAKEOFF: {int(progress * 100)}%", True, (255, 255, 255))
-            text_rect = text.get_rect(center=(screen_pos[0], bar_y - 10))
-            surface.blit(text, text_rect)
-        
-        # Draw shield if active
-        if self.shield > 0:
-            shield_radius = rocket_length * 1.5
-            shield_alpha = int(100 * (self.shield / self.max_shield) + 50)
-            shield_color = (100, 150, 255, shield_alpha)
-            
-            shield_surface = pygame.Surface((shield_radius * 2, shield_radius * 2), pygame.SRCALPHA)
-            pygame.draw.circle(shield_surface, shield_color, (shield_radius, shield_radius), shield_radius, 2)
-            surface.blit(shield_surface, (screen_pos[0] - shield_radius, screen_pos[1] - shield_radius))
 
-    def update(self, dt):
-        """Update rocket's position and physics."""
-        # If landed on a planet, don't update position normally
-        if self.landed_on_planet:
-            # Keep the rocket on the planet surface
-            planet = self.landed_on_planet
-            direction = (self.position - planet.position) / np.linalg.norm(self.position - planet.position)
-            self.position = planet.position + direction * (planet.radius + self.radius)
-            self.velocity = planet.velocity.copy()  # Match planet's velocity
-        else:
-            self.update_position(dt)
-        
-        # Reset landing velocity tracker
-        self.landing_velocity = np.linalg.norm(self.velocity)
+    def complete_mission(self):
+        """Handle mission completion."""
+        if not self.current_mission:
+            return
+        self.credits += self.current_mission["reward"]
+        if self.current_quest and self.current_quest["id"] == self.current_mission.get("quest_id"):
+            self.completed_quests.append(self.current_quest)
+            next_quest_id = self.current_quest["id"] + 1
+            for quest in STORY["quests"]:
+                if quest["id"] == next_quest_id:
+                    self.current_quest = quest
+                    break
+            else:
+                self.current_quest = None
+        self.current_mission = None
+        self.mission_targets = []
+        self.mission_progress = 0
+
+    def fail_mission(self, reason):
+        """Handle mission failure."""
+        self.current_mission = None
+        self.mission_targets = []
+
+    def update_mission(self, dt):
+        """Update current mission status."""
+        if not self.current_mission:
+            return
+        if self.current_mission.get("time_limit", 0) > 0:
+            self.mission_timer -= dt
+            if self.mission_timer <= 0:
+                self.fail_mission("Time expired")
+                return
+        if self.current_mission["type"] == "collect":
+            if self.mission_progress >= self.current_mission["target_count"]:
+                self.complete_mission()
+        elif self.current_mission["type"] == "destroy":
+            if self.mission_progress >= self.current_mission["target_count"]:
+                self.complete_mission()
+        elif self.current_mission["type"] == "explore":
+            discovered_targets = 0
+            for target in self.mission_targets:
+                if target.get("discovered", False):
+                    discovered_targets += 1
+            if discovered_targets >= self.current_mission["target_count"]:
+                self.complete_mission()
+
+    def update_rotation(self, dt):
+        """Update the rocket's rotation based on input flags."""
+        if self.turning_left:
+            self.angle -= self.rotation_speed * dt
+        if self.turning_right:
+            self.angle += self.rotation_speed * dt
+        # Keep angle within 0-2pi
+        self.angle %= 2 * math.pi
+
+    def apply_thrust(self):
+        """Apply thrust if thrusting and has fuel."""
+        if self.thrusting and self.fuel > 0:
+            # Thrust in the direction of the rocket's nose (forward)
+            direction = np.array([math.cos(self.angle), math.sin(self.angle)])
+            thrust_force = direction * self.thrust * (self.engine_level if hasattr(self, 'engine_level') else 1)
+            self.apply_force(thrust_force)
+            self.fuel -= CONFIG["fuel_consumption_rate"]
+            if self.fuel < 0:
+                self.fuel = 0
+
+    def update_trajectory(self, celestial_bodies, dt):
+        """Predict and store the rocket's future trajectory points for visualization."""
+        # Simple forward simulation for trajectory preview
+        points = []
+        pos = self.position.copy()
+        vel = self.velocity.copy()
+        steps = CONFIG.get("trajectory_length", 200)
+        time_step = 0.2
+        for _ in range(steps):
+            # Sum gravity from all planets
+            total_force = np.zeros(2)
+            for body in celestial_bodies:
+                if isinstance(body, Planet):
+                    delta = body.position - pos
+                    dist_sq = np.dot(delta, delta)
+                    if dist_sq > 1:
+                        dist = np.sqrt(dist_sq)
+                        force_mag = CONFIG["gravity_constant"] * self.mass * body.mass / dist_sq
+                        force = force_mag * (delta / dist)
+                        total_force += force
+            acc = total_force / self.mass
+            vel = vel + acc * time_step
+            pos = pos + vel * time_step
+            points.append(pos.copy())
+        self.trajectory_points = points
+
+    def take_damage(self, amount):
+        """Apply damage to the rocket, reducing shield first, then health."""
+        if self.shield > 0:
+            shield_damage = min(self.shield, amount)
+            self.shield -= shield_damage
+            amount -= shield_damage
+        if amount > 0:
+            self.health -= amount
+            self.damage_flash_timer = CONFIG.get("damage_visual_time", 0.5)
+            if self.health < 0:
+                self.health = 0
+
+    def collect_item(self, item):
+        """Handle collecting an item: add to inventory and apply effects."""
+        self.collected_items.append(item)
+        if hasattr(item, 'type'):
+            if item.type == 'fuel':
+                self.fuel = min(self.max_fuel, self.fuel + item.value)
+            elif item.type == 'health':
+                self.health = min(self.max_health, self.health + item.value)
+            elif item.type == 'shield':
+                self.shield = min(self.max_shield, self.shield + item.value)
+            elif item.type == 'credits':
+                self.credits += item.value
+        # For mission items or unknown types, just add to inventory
+
+    def fire_weapon(self, bullets):
+        """Fire a bullet from the rocket's nose, in the direction it's facing, if fire rate allows."""
+        if hasattr(self, 'fire_rate_timer') and self.fire_rate_timer > 0:
+            return  # Still in cooldown
+        direction = np.array([math.cos(self.angle), math.sin(self.angle)])
+        bullet_speed = CONFIG.get("bullet_speed", 600)
+        bullet_velocity = direction * bullet_speed
+        # Spawn bullet from the nose (front tip) of the rocket
+        rocket_length = self.radius * 3
+        bullet_pos = self.position + direction * rocket_length
+        bullet = Bullet(bullet_pos, bullet_velocity, damage=10 * (self.weapon_level if hasattr(self, 'weapon_level') else 1), angle=self.angle)
+        bullets.append(bullet)
+        self.fire_rate_timer = CONFIG.get("rocket_fire_rate", 0.3)
 
 class Bullet:
     """Projectile fired from weapons."""
@@ -3468,6 +3392,8 @@ class Game:
             }
         if getattr(planet, 'biome_type', None) == 'desert':
             self.planet_surface_scene = DesertSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
+        elif getattr(planet, 'biome_type', None) == 'forest':
+            self.planet_surface_scene = ForestSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
         else:
             self.planet_surface_scene = BiomeSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
         self.scene = "planet_surface"
@@ -3956,6 +3882,109 @@ class DesertSurfaceScene(BiomeSurfaceScene):
             overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
             overlay.fill((200, 180, 120, int(self.dust_storm_alpha)))
             surface.blit(overlay, (0, 0))
+
+class ForestSurfaceScene(BiomeSurfaceScene):
+    def load_assets(self):
+        self.asset_dir = os.path.join("assets", "forest")
+        # Use 'foor1.png' as the ground (assume typo for 'floor1.png')
+        try:
+            self.ground_img = pygame.image.load(os.path.join(self.asset_dir, "foor1.png")).convert_alpha()
+        except Exception:
+            self.ground_img = pygame.Surface((100, 100))
+            self.ground_img.fill((80, 120, 60))
+        try:
+            self.bg_img = pygame.image.load(os.path.join(self.asset_dir, "forestbackground.png")).convert_alpha()
+        except Exception:
+            self.bg_img = pygame.Surface((200, 100))
+            self.bg_img.fill((60, 100, 40))
+        self.prop_imgs = []
+        for name in ["Tree1.png", "Tree2.png", "Tree3.png", "log.png"]:
+            try:
+                img = pygame.image.load(os.path.join(self.asset_dir, name)).convert_alpha()
+            except Exception:
+                img = pygame.Surface((32, 48))
+                img.fill((60, 120, 60))
+            self.prop_imgs.append(img)
+    def generate_terrain_and_props(self):
+        self.sand_top_y = int(self.height * 0.6)
+        self.sand_height = self.height - self.sand_top_y
+        # --- Ground tiling ---
+        ground_tile_w = self.ground_img.get_width()
+        ground_tile_h = self.ground_img.get_height()
+        ground_scaled = pygame.transform.scale(self.ground_img, (ground_tile_w, self.sand_height))
+        self.ground_tiles = []
+        for i in range((self.width // ground_tile_w) + 3):
+            self.ground_tiles.append({'img': ground_scaled, 'x': i * ground_tile_w, 'y': self.sand_top_y})
+        # --- Background tiling ---
+        bg_h = self.bg_img.get_height()
+        bg_w = self.bg_img.get_width()
+        bg_y = self.sand_top_y - bg_h
+        self.bg_tiles = []
+        for i in range((self.width // bg_w) + 3):
+            self.bg_tiles.append({'img': self.bg_img, 'x': i * bg_w, 'y': bg_y})
+        # --- Sky gradient ---
+        self.sky_gradient = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        for y in range(self.height):
+            t = y / self.height
+            r = int(80 * (1-t) + 120 * t)
+            g = int(140 * (1-t) + 200 * t)
+            b = int(60 * (1-t) + 120 * t)
+            a = 255
+            pygame.draw.line(self.sky_gradient, (r, g, b, a), (0, y), (self.width, y))
+        # --- Prop placement with Z-layering ---
+        self.props_behind = []
+        self.props_infront = []
+        ground_y = self.sand_top_y
+        for i in range(16):
+            img = random.choice(self.prop_imgs)
+            scale = random.uniform(0.7, 1.2)
+            prop_img = pygame.transform.rotozoom(img, random.uniform(-10, 10), scale)
+            prop_w, prop_h = prop_img.get_size()
+            x = random.randint(60, self.width - 60)
+            y = ground_y + self.sand_height
+            rect = prop_img.get_rect(midbottom=(x, y))
+            z = random.choices(['behind', 'infront'], weights=[70, 30])[0]
+            if z == 'behind':
+                self.props_behind.append({'img': prop_img, 'rect': rect})
+            else:
+                self.props_infront.append({'img': prop_img, 'rect': rect})
+    def render(self, surface):
+        # --- Sky gradient (furthest back) ---
+        surface.blit(self.sky_gradient, (0, 0))
+        # --- Forest background (behind sand, above sky) ---
+        for bg in self.bg_tiles:
+            surface.blit(bg['img'], (bg['x'], bg['y']))
+        # --- Ground (walkable) ---
+        for tile in self.ground_tiles:
+            surface.blit(tile['img'], (tile['x'], tile['y']))
+        # --- Props behind player ---
+        for prop in self.props_behind:
+            surface.blit(prop['img'], prop['rect'])
+        # --- Player ---
+        self.player.render(surface)
+        # --- Props in front of player ---
+        for prop in self.props_infront:
+            surface.blit(prop['img'], prop['rect'])
+        # --- Prompt ---
+        if self.enter_ship_prompt and self.prompt_active:
+            font = pygame.font.SysFont(None, 32)
+            prompt = font.render("Enter Rocket? (Press E)", True, (255, 255, 0))
+            surface.blit(prompt, (self.ship_pos[0] - prompt.get_width()//2, self.sand_top_y - 60))
+        # --- Info ---
+        font = pygame.font.SysFont(None, 28)
+        info = font.render(f"{self.planet.name} Surface (Forest)", True, (200, 255, 200))
+        surface.blit(info, (20, 20))
+    def get_rocket_state(self):
+        state = self.rocket_state.copy()
+        state["health"] = self.player.health
+        state["fuel"] = self.player.fuel
+        state["position"] = self.planet.position.copy()
+        return state
+
+# Integrate ForestSurfaceScene into planet surface logic
+# In start_planet_surface_scene, add:
+# if getattr(planet, 'biome_type', None) == 'forest':
+#     self.planet_surface_scene = ForestSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
 
 # Start the game
 if __name__ == "__main__":
