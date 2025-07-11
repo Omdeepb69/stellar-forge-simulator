@@ -1743,11 +1743,22 @@ class Enemy:
         self.type = "standard"  # standard, elite, boss
         self.drops = []
         self.generate_drops()
-        
         # For visual effects
         self.damaged_timer = 0
         self.rotation_speed = random.uniform(0.5, 1.5)
-    
+        # --- Alien ship sprite ---
+        self._load_sprite()
+
+    def _load_sprite(self):
+        import os
+        try:
+            img = pygame.image.load(os.path.join("Assets", "alien", "alien_ship", "alienShip.png")).convert_alpha()
+            w, h = img.get_size()
+            scale = (self.size * 2) / max(w, h)
+            self.sprite_img = pygame.transform.rotozoom(img, 0, scale)
+        except Exception:
+            self.sprite_img = None
+
     def generate_drops(self):
         """Generate potential item drops."""
         drop_count = random.randint(1, 3)
@@ -1843,59 +1854,45 @@ class Enemy:
         return self.health <= 0
     
     def draw(self, surface, camera):
-        """Draw the enemy ship."""
         if not self.active:
             return
-            
         screen_pos = camera.world_to_screen(self.position)
         screen_size = int(self.size * camera.zoom)
-        
-        # Only draw if on screen
-        if not (0 <= screen_pos[0] < camera.screen_width and 
+        if not (0 <= screen_pos[0] < camera.screen_width and \
                 0 <= screen_pos[1] < camera.screen_height):
             return
-        
-        # Draw ship body
-        color = self.color
-        if self.damaged_timer > 0:
-            color = (255, 100, 100)  # Flash red when damaged
-        
-        # Calculate points for ship shape based on angle
-        direction = np.array([math.cos(self.angle), math.sin(self.angle)])
-        right = np.array([-direction[1], direction[0]])  # Perpendicular to direction
-        
-        ship_length = screen_size * 2
-        ship_width = screen_size * 1.5
-        
-        # Ship shape points
-        nose = screen_pos + direction * ship_length/2
-        left_wing = screen_pos - direction * ship_length/2 + right * ship_width/2
-        right_wing = screen_pos - direction * ship_length/2 - right * ship_width/2
-        
-        # Draw enemy shape
-        ship_points = [nose, left_wing, right_wing]
-        pygame.draw.polygon(surface, color, ship_points)
-        
-        # Draw engine glow
-        engine_pos = screen_pos - direction * ship_length/2
-        engine_size = screen_size * 0.4
-        engine_color = (255, 150, 0)
-        pygame.draw.circle(surface, engine_color, engine_pos.astype(int), int(engine_size))
-        
+        # Draw alien ship sprite if available
+        if self.sprite_img:
+            # Rotate sprite to match angle
+            sprite_rot = pygame.transform.rotozoom(self.sprite_img, -math.degrees(self.angle), camera.zoom)
+            sprite_rect = sprite_rot.get_rect(center=screen_pos)
+            surface.blit(sprite_rot, sprite_rect)
+        else:
+            # Fallback: draw polygon ship
+            color = self.color
+            if self.damaged_timer > 0:
+                color = (255, 100, 100)
+            direction = np.array([math.cos(self.angle), math.sin(self.angle)])
+            right = np.array([-direction[1], direction[0]])
+            ship_length = screen_size * 2
+            ship_width = screen_size * 1.5
+            nose = screen_pos + direction * ship_length/2
+            left_wing = screen_pos - direction * ship_length/2 + right * ship_width/2
+            right_wing = screen_pos - direction * ship_length/2 - right * ship_width/2
+            ship_points = [nose, left_wing, right_wing]
+            pygame.draw.polygon(surface, color, ship_points)
+            engine_pos = screen_pos - direction * ship_length/2
+            engine_size = screen_size * 0.4
+            engine_color = (255, 150, 0)
+            pygame.draw.circle(surface, engine_color, engine_pos.astype(int), int(engine_size))
         # Draw health bar if damaged
         if self.health < self.max_health:
             bar_width = screen_size * 2
             bar_height = 4
             bar_pos = (int(screen_pos[0] - bar_width/2), int(screen_pos[1] - ship_length))
-            
-            # Background bar (red)
-            pygame.draw.rect(surface, (255, 0, 0), 
-                            (bar_pos[0], bar_pos[1], bar_width, bar_height))
-            
-            # Health bar (green)
+            pygame.draw.rect(surface, (255, 0, 0), (bar_pos[0], bar_pos[1], bar_width, bar_height))
             health_width = int(bar_width * (self.health / self.max_health))
-            pygame.draw.rect(surface, (0, 255, 0), 
-                            (bar_pos[0], bar_pos[1], health_width, bar_height))
+            pygame.draw.rect(surface, (0, 255, 0), (bar_pos[0], bar_pos[1], health_width, bar_height))
 
 class Collectible:
     """Collectible items that benefit the player."""
