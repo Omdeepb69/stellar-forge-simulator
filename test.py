@@ -2705,8 +2705,8 @@ class Game:
     
     def spawn_on_planet_surface(self):
         # Pick a planet to start on
-        for body in self.celestial_bodies:
-            if isinstance(body, Planet):
+            for body in self.celestial_bodies:
+                if isinstance(body, Planet):
                 start_planet = body
                 break
         else:
@@ -2867,7 +2867,7 @@ class Game:
                     self.paused = not self.paused
                 elif event.key == pygame.K_SPACE:
                     if self.scene == "space":
-                        self.rocket.fire_weapon(self.bullets)
+                    self.rocket.fire_weapon(self.bullets)
                 elif event.key == pygame.K_m:
                     self.ui.showing_map = not self.ui.showing_map
                 elif event.key == pygame.K_i:
@@ -2883,51 +2883,51 @@ class Game:
                     direction = (self.rocket.position - self.landing_prompt_planet.position)
                     if np.linalg.norm(direction) == 0:
                         direction = np.array([1.0, 0.0])
-                    else:
+                            else:
                         direction = direction / np.linalg.norm(direction)
                     self.rocket.position = self.landing_prompt_planet.position + direction * (self.landing_prompt_planet.radius + self.rocket.radius)
                     self.enter_planet_surface_scene(self.landing_prompt_planet)
         # ... continuous key handling for player/rocket ...
-    
+
     def render(self):
         if self.scene == "space":
-            self.screen.fill(CONFIG["background_color"])
-            self.background.draw(self.screen, self.camera)
+        self.screen.fill(CONFIG["background_color"])
+        self.background.draw(self.screen, self.camera)
             # Only render objects within render_distance
-            for body in self.celestial_bodies:
-                if isinstance(body, CelestialBody):
-                    distance = np.linalg.norm(body.position - self.rocket.position)
+        for body in self.celestial_bodies:
+            if isinstance(body, CelestialBody):
+                distance = np.linalg.norm(body.position - self.rocket.position)
                     if distance < self.render_distance:
-                        body.draw(self.screen, self.camera)
-            for item in self.collectibles:
-                distance = np.linalg.norm(item.position - self.rocket.position)
+                    body.draw(self.screen, self.camera)
+        for item in self.collectibles:
+            distance = np.linalg.norm(item.position - self.rocket.position)
                 if distance < self.render_distance:
-                    item.draw(self.screen, self.camera)
-            for enemy in self.enemies:
-                distance = np.linalg.norm(enemy.position - self.rocket.position)
+                item.draw(self.screen, self.camera)
+        for enemy in self.enemies:
+            distance = np.linalg.norm(enemy.position - self.rocket.position)
                 if distance < self.render_distance:
-                    enemy.draw(self.screen, self.camera)
-            for bullet in self.bullets:
-                distance = np.linalg.norm(bullet.position - self.rocket.position)
+                enemy.draw(self.screen, self.camera)
+        for bullet in self.bullets:
+            distance = np.linalg.norm(bullet.position - self.rocket.position)
                 if distance < self.render_distance:
-                    bullet.draw(self.screen, self.camera)
+                bullet.draw(self.screen, self.camera)
             if hasattr(self, 'rocket') and self.rocket:
-                self.rocket.draw(self.screen, self.camera)
-            for nebula in self.nebulae:
-                distance = np.linalg.norm(nebula.position - self.rocket.position)
+        self.rocket.draw(self.screen, self.camera)
+        for nebula in self.nebulae:
+            distance = np.linalg.norm(nebula.position - self.rocket.position)
                 if distance < self.render_distance:
-                    nebula.draw(self.screen, self.camera)
-            for station in self.space_stations:
-                distance = np.linalg.norm(station.position - self.rocket.position)
+                nebula.draw(self.screen, self.camera)
+        for station in self.space_stations:
+            distance = np.linalg.norm(station.position - self.rocket.position)
                 if distance < self.render_distance:
-                    station.draw(self.screen, self.camera)
-            self.particle_system.draw(self.screen, self.camera)
-            self.ui.draw_hud(self.screen, self.rocket)
-            self.ui.draw_minimap(self.screen, self.rocket, self.celestial_bodies, self.camera)
-            self.ui.draw_target_info(self.screen, self.selected_target)
-            self.ui.draw_map_screen(self.screen, self.rocket, self.celestial_bodies, self.camera)
-            self.ui.draw_inventory_screen(self.screen, self.rocket)
-            self.ui.draw_missions_screen(self.screen, self.rocket)
+                station.draw(self.screen, self.camera)
+        self.particle_system.draw(self.screen, self.camera)
+        self.ui.draw_hud(self.screen, self.rocket)
+        self.ui.draw_minimap(self.screen, self.rocket, self.celestial_bodies, self.camera)
+        self.ui.draw_target_info(self.screen, self.selected_target)
+        self.ui.draw_map_screen(self.screen, self.rocket, self.celestial_bodies, self.camera)
+        self.ui.draw_inventory_screen(self.screen, self.rocket)
+        self.ui.draw_missions_screen(self.screen, self.rocket)
             if self.landing_prompt:
                 font = pygame.font.SysFont(None, 36)
                 prompt_surf = font.render(self.landing_prompt, True, (255, 255, 0))
@@ -2940,18 +2940,18 @@ class Game:
             fade_overlay.fill((0, 0, 0, int(self.fade_alpha)))
             self.screen.blit(fade_overlay, (0, 0))
         pygame.display.flip()
-    
+
     def run(self):
         """Run the main game loop."""
         while self.running:
             self.update()
             self.render()
             self.clock.tick(self.fps)
-    
+
         # Game over screen
         if self.game_over:
             self.show_game_over_screen()
-    
+
     def show_game_over_screen(self):
         """Display the game over screen."""
         self.screen.fill((0, 0, 0))
@@ -2960,7 +2960,7 @@ class Game:
         self.screen.blit(game_over_text, (self.screen_width // 2 - game_over_text.get_width() // 2, self.screen_height // 2 - 50))
         self.screen.blit(restart_text, (self.screen_width // 2 - restart_text.get_width() // 2, self.screen_height // 2 + 20))
         pygame.display.flip()
-    
+
         # Wait for player input
         while True:
             for event in pygame.event.get():

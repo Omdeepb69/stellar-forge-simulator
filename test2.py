@@ -6,6 +6,8 @@ import math
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 import pygame.freetype
+import hashlib
+import os
 
 # Configuration Constants
 CONFIG = {
@@ -33,8 +35,8 @@ CONFIG = {
     "asteroid_mass_max": 1e2,
     "asteroid_radius_min": 1,
     "asteroid_radius_max": 4,
-    "rocket_mass": 100,
-    "rocket_thrust": 500,
+    "rocket_mass": 70,  # Reduced mass for faster acceleration
+    "rocket_thrust": 1000,  # Increased thrust for more responsive control
     "rocket_rotation_speed": 3,
     "rocket_initial_fuel": 1000,
     "fuel_consumption_rate": 0.5,
@@ -152,57 +154,45 @@ radius_model = LinearRegression().fit(_distances_poly, _radii)
 density_model = LinearRegression().fit(_distances_poly, _density_factors)
 
 def generate_planet_properties(orbital_distance, star_mass):
-    """Generate realistic planet properties based on distance from star."""
+    """Generate realistic planet properties based on distance from star and assign biome."""
     dist_poly = poly.transform(np.array([[orbital_distance]]))
-    
-    # Use models with more randomization for diverse planets
     mass_factor = mass_model.predict(dist_poly)[0][0]
     mass = star_mass * np.clip(mass_factor + np.random.normal(0, 0.005), 0.0001, 0.2)
-    
     radius = radius_model.predict(dist_poly)[0][0]
     radius = np.clip(radius + np.random.normal(0, 4), CONFIG["planet_radius_min"], CONFIG["planet_radius_max"])
-    
     density_factor = density_model.predict(dist_poly)[0][0]
     density_factor = np.clip(density_factor + np.random.normal(0, 0.1), 0.05, 1.0)
-    
-    # Generate suitable color based on distance and properties
-    r = int(150 * (1 - density_factor) + 50 * (1 - min(1, orbital_distance / (CONFIG["min_orbit_radius"] * 30))))
-    g = int(100 * density_factor + 50 * (1 - min(1, orbital_distance / (CONFIG["min_orbit_radius"] * 30))))
-    b = int(200 * density_factor + 50 * min(1, orbital_distance / (CONFIG["min_orbit_radius"] * 50)))
-    
+    # --- Biome assignment ---
+    biomes = ["desert", "ice", "forest", "ocean", "volcanic", "gas", "rocky", "toxic"]
+    biome_type = random.choices(["desert", "ice", "forest"], weights=[0.3, 0.3, 0.4])[0]
+    # --- Biome-specific properties ---
+    if biome_type == "desert":
+        color = (random.randint(200, 255), random.randint(120, 180), random.randint(60, 100))
+        density_factor = 0.3 + np.random.uniform(0, 0.2)
+        gravity_mult = 0.7
+        takeoff_cost = 0.7
+    elif biome_type == "ice":
+        color = (random.randint(180, 240), random.randint(200, 255), random.randint(220, 255))
+        density_factor = 0.2 + np.random.uniform(0, 0.2)
+        gravity_mult = 0.5
+        takeoff_cost = 1.2
+    elif biome_type == "forest":
+        color = (random.randint(60, 120), random.randint(180, 255), random.randint(60, 120))
+        density_factor = 0.7 + np.random.uniform(0, 0.2)
+        gravity_mult = 1.1
+        takeoff_cost = 1.0
+    else:
+        # fallback for other types
+        color = (random.randint(100, 200), random.randint(100, 200), random.randint(100, 200))
+        gravity_mult = 1.0
+        takeoff_cost = 1.0
+    mass *= gravity_mult
     # Add more variety to planet colors
     variation = random.randint(-30, 30)
-    r = np.clip(r + variation, 20, 255)
-    g = np.clip(g + variation, 20, 255)
-    b = np.clip(b + variation, 20, 255)
-    
-    color = tuple(np.clip([r, g, b], 0, 255))
-    
-    # Determine planet biome type
-    biome_index = int((orbital_distance / (CONFIG["min_orbit_radius"] * 50)) * len(CONFIG["planet_biome_types"]))
-    biome_index = min(biome_index, len(CONFIG["planet_biome_types"]) - 1)
-    biome_type = CONFIG["planet_biome_types"][biome_index]
-    
-    # Adjust color based on biome
-    if biome_type == "desert":
-        color = (r, min(g + 30, 255), max(b - 30, 20))
-    elif biome_type == "ice":
-        color = (max(r - 30, 20), max(g - 30, 20), min(b + 50, 255))
-    elif biome_type == "ocean":
-        color = (max(r - 50, 20), g, min(b + 60, 255))
-    elif biome_type == "forest":
-        color = (max(r - 50, 20), min(g + 70, 255), max(b - 50, 20))
-    elif biome_type == "volcanic":
-        color = (min(r + 80, 255), max(g - 50, 20), max(b - 50, 20))
-    elif biome_type == "gas":
-        color = (r, min(g + 40, 255), min(b + 40, 255))
-    elif biome_type == "toxic":
-        color = (max(r - 50, 20), min(g + 80, 255), max(b - 50, 20))
-    
-    has_rings = random.random() < 0.2  # 20% chance for rings
-    has_moons = random.randint(0, 3)  # 0-3 moons
-    
-    return mass, radius, color, density_factor, biome_type, has_rings, has_moons
+    color = tuple(np.clip([c + variation for c in color], 20, 255))
+    has_rings = random.random() < 0.2
+    has_moons = random.randint(0, 3)
+    return mass, radius, color, density_factor, biome_type, has_rings, has_moons, takeoff_cost
 
 class ParticleSystem:
     """System for managing visual particles."""
@@ -1325,7 +1315,7 @@ class Rocket(CelestialBody):
         self.takeoff_timer = 0
         self.takeoff_duration = 5.0  # 5 seconds to takeoff
         self.takeoff_fuel_cost = 100
-        self.takeoff_thrust_multiplier = 3.0  # Extra thrust during takeoff
+        self.takeoff_thrust_multiplier = 5.0  # Stronger takeoff for smooth launch
         self.is_taking_off = False
         self.landing_velocity = 0  # Track landing velocity for damage
         
@@ -2715,6 +2705,7 @@ class Game:
         self.landing_prompt = None
         self.landing_prompt_planet = None
         self.landing_prompt_active = False
+        self.saved_space_state = None  # For saving/restoring space state
         # ... existing code ...
         # Start on planet surface
         start_planet = None
@@ -2742,11 +2733,12 @@ class Game:
             position = np.array([math.cos(angle), math.sin(angle)]) * distance
 
             # Use ML model to generate planet properties
-            mass, radius, color, density, biome_type, has_rings, moons = generate_planet_properties(distance, self.central_star.mass)
+            mass, radius, color, density, biome_type, has_rings, moons, takeoff_cost = generate_planet_properties(distance, self.central_star.mass)
             velocity = np.array([-math.sin(angle), math.cos(angle)]) * math.sqrt(CONFIG["gravity_constant"] * self.central_star.mass / distance)
 
             # Create and add planet
             planet = Planet(position, velocity, mass, radius, color, density, biome_type, has_rings, moons, name)
+            planet.takeoff_cost_multiplier = takeoff_cost
             self.celestial_bodies.append(planet)
         
         # Create asteroid belt
@@ -2925,6 +2917,19 @@ class Game:
                         direction = direction / np.linalg.norm(direction)
                     self.rocket.position = self.landing_prompt_planet.position + direction * (self.landing_prompt_planet.radius + self.rocket.radius)
                     self.enter_planet_surface_scene(self.landing_prompt_planet)
+                elif hasattr(self, 'landing_modal_active') and self.landing_modal_active:
+                    if event.key == pygame.K_l:
+                        # Save space state and fade out
+                        self.save_space_state_and_land()
+                        self.landing_modal_active = False
+                        self.landing_prompt_active = False
+                        self.landing_prompt = None
+                        return
+                    elif event.key == pygame.K_ESCAPE:
+                        self.landing_modal_active = False
+                        self.landing_prompt_active = False
+                        self.landing_prompt = None
+                        return
         
         # Get continuous key presses
         keys = pygame.key.get_pressed()
@@ -3019,6 +3024,22 @@ class Game:
                 distance_sq = np.dot(delta, delta)
                 if distance_sq > 1:
                     distance = np.sqrt(distance_sq)
+                    # --- Space Station Collision ---
+                    if isinstance(body, SpaceStation):
+                        if distance < body.radius + self.rocket.radius:
+                            relative_vel = np.linalg.norm(self.rocket.velocity - body.velocity)
+                            # Trigger explosion
+                            self.create_explosion(self.rocket.position, 40)
+                            # End game or damage based on impact
+                            if relative_vel > 30:
+                                self.rocket.health = 0
+                                self.game_over = True
+                            else:
+                                self.rocket.take_damage(int(relative_vel * 2))
+                                if self.rocket.health <= 0:
+                                    self.game_over = True
+                            continue  # Skip further gravity/collision for this frame
+                    # --- Asteroid/Other Collisions (existing logic) ---
                     if isinstance(body, Planet):
                         planet_gravity = body.mass * CONFIG["gravity_constant"]
                         force_magnitude = planet_gravity * self.rocket.mass / (distance ** 2)
@@ -3028,9 +3049,14 @@ class Game:
                         if (distance < body.radius * 1.2 + self.rocket.radius and
                             distance > body.radius + self.rocket.radius + 10 and
                             self.rocket.landed_on_planet != body):
-                            self.landing_prompt = f"Land on {body.name}? (Press L)"
+                            self.landing_prompt = f"Do you want to land on {body.name}? (L = Yes, Esc = No)"
                             self.landing_prompt_planet = body
                             self.landing_prompt_active = True
+                            self.landing_modal_active = True
+                        else:
+                            if not hasattr(self, 'landing_modal_active') or not self.landing_modal_active:
+                                self.landing_prompt_active = False
+                                self.landing_prompt = None
                     else:
                         force_magnitude = CONFIG["gravity_constant"] * self.rocket.mass * body.mass / (distance ** 2)
                         force = force_magnitude * (delta / distance)
@@ -3305,7 +3331,13 @@ class Game:
             self.background.draw(self.screen, self.camera)
             render_distance = 1200 * self.camera.zoom  # Aggressively reduced
             for body in self.celestial_bodies:
-                if isinstance(body, CelestialBody):
+                # Only draw gravity/atmosphere rings for actual planets, and only via their draw method
+                if isinstance(body, Planet):
+                    distance = np.linalg.norm(body.position - self.rocket.position)
+                    if distance < render_distance:
+                        body.draw(self.screen, self.camera)
+                elif isinstance(body, CelestialBody):
+                    # For other celestial bodies, draw as usual (no gravity/atmosphere rings)
                     distance = np.linalg.norm(body.position - self.rocket.position)
                     if distance < render_distance:
                         body.draw(self.screen, self.camera)
@@ -3337,10 +3369,15 @@ class Game:
             self.ui.draw_map_screen(self.screen, self.rocket, self.celestial_bodies, self.camera)
             self.ui.draw_inventory_screen(self.screen, self.rocket)
             self.ui.draw_missions_screen(self.screen, self.rocket)
-            if self.landing_prompt:
+            if self.landing_prompt and self.landing_prompt_active:
                 font = pygame.font.SysFont(None, 36)
                 prompt_surf = font.render(self.landing_prompt, True, (255, 255, 0))
-                self.screen.blit(prompt_surf, (self.screen_width//2 - prompt_surf.get_width()//2, self.screen_height - 80))
+                prompt_bg = pygame.Surface((prompt_surf.get_width()+40, prompt_surf.get_height()+30), pygame.SRCALPHA)
+                prompt_bg.fill((0,0,0,200))
+                x = self.screen_width//2 - prompt_surf.get_width()//2
+                y = self.screen_height//2 - prompt_surf.get_height()//2
+                self.screen.blit(prompt_bg, (x-20, y-15))
+                self.screen.blit(prompt_surf, (x, y))
         # Fade overlay
         if self.fade_alpha > 0:
             fade_overlay = pygame.Surface((self.screen_width, self.screen_height), pygame.SRCALPHA)
@@ -3399,7 +3436,10 @@ class Game:
                 "weapon_level": self.rocket.weapon_level,
                 "scanner_level": self.rocket.scanner_level,
             }
-        self.planet_surface_scene = PlanetSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
+        if getattr(planet, 'biome_type', None) == 'desert':
+            self.planet_surface_scene = DesertSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
+        else:
+            self.planet_surface_scene = BiomeSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
         self.scene = "planet_surface"
         self.fade_alpha = 0
         self.fade_direction = 0
@@ -3438,19 +3478,35 @@ class Game:
         surface_x = 400 if not crash else 600
         surface_y = 480
         if rocket_state is None:
-            rocket_state = {
-                "fuel": self.rocket.fuel,
-                "health": self.rocket.health,
-                "max_health": self.rocket.max_health,
-                "shield": self.rocket.shield,
-                "max_shield": self.rocket.max_shield,
-                "credits": self.rocket.credits,
-                "position": planet.position.copy() if planet else np.zeros(2),
-                "velocity": np.zeros(2),
-                "engine_level": self.rocket.engine_level,
-                "weapon_level": self.rocket.weapon_level,
-                "scanner_level": self.rocket.scanner_level,
-            }
+            # Use rocket state from saved space state if available
+            if self.saved_space_state:
+                rocket_state = {
+                    "fuel": self.saved_space_state['rocket'].fuel,
+                    "health": self.saved_space_state['rocket'].health,
+                    "max_health": self.saved_space_state['rocket'].max_health,
+                    "shield": self.saved_space_state['rocket'].shield,
+                    "max_shield": self.saved_space_state['rocket'].max_shield,
+                    "credits": self.saved_space_state['rocket'].credits,
+                    "position": planet.position.copy() if planet else np.zeros(2),
+                    "velocity": np.zeros(2),
+                    "engine_level": self.saved_space_state['rocket'].engine_level,
+                    "weapon_level": self.saved_space_state['rocket'].weapon_level,
+                    "scanner_level": self.saved_space_state['rocket'].scanner_level,
+                }
+            else:
+                rocket_state = {
+                    "fuel": self.rocket.fuel,
+                    "health": self.rocket.health,
+                    "max_health": self.rocket.max_health,
+                    "shield": self.rocket.shield,
+                    "max_shield": self.rocket.max_shield,
+                    "credits": self.rocket.credits,
+                    "position": planet.position.copy() if planet else np.zeros(2),
+                    "velocity": np.zeros(2),
+                    "engine_level": self.rocket.engine_level,
+                    "weapon_level": self.rocket.weapon_level,
+                    "scanner_level": self.rocket.scanner_level,
+                }
         self.planet_surface_scene = PlanetSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
         self.scene = "planet_surface"
         self.camera.set_target(None)
@@ -3459,6 +3515,88 @@ class Game:
         self.fade_alpha = 255
         self.scene_transition = None
         self.next_scene = None
+
+    def save_space_state_and_land(self):
+        import copy
+        # Deep copy all relevant state
+        self.saved_space_state = {
+            'rocket': copy.deepcopy(self.rocket),
+            'celestial_bodies': copy.deepcopy(self.celestial_bodies),
+            'space_stations': copy.deepcopy(self.space_stations),
+            'background': copy.deepcopy(self.background),
+            'ui': copy.deepcopy(self.ui),
+            'bullets': copy.deepcopy(self.bullets),
+            'enemies': copy.deepcopy(self.enemies),
+            'collectibles': copy.deepcopy(self.collectibles),
+            'nebulae': copy.deepcopy(self.nebulae),
+            'particle_system': copy.deepcopy(self.particle_system),
+            'selected_target': copy.deepcopy(self.selected_target),
+            'target_distance': self.target_distance,
+            'scan_timer': self.scan_timer,
+            'paused': self.paused,
+            'game_over': self.game_over,
+        }
+        # Start fade-out and set transition state
+        self.scene_transition = "to_planet_surface"
+        self.fade_direction = 1
+        self.next_scene = (self.landing_prompt_planet, None, False)
+
+    def _do_space_scene_switch(self):
+        planet, rocket_state = self.next_scene if self.next_scene else (None, None)
+        # Restore all saved space state
+        if self.saved_space_state:
+            import copy
+            self.rocket = copy.deepcopy(self.saved_space_state['rocket'])
+            self.celestial_bodies = copy.deepcopy(self.saved_space_state['celestial_bodies'])
+            self.space_stations = copy.deepcopy(self.saved_space_state['space_stations'])
+            self.background = copy.deepcopy(self.saved_space_state['background'])
+            self.ui = copy.deepcopy(self.saved_space_state['ui'])
+            self.bullets = copy.deepcopy(self.saved_space_state['bullets'])
+            self.enemies = copy.deepcopy(self.saved_space_state['enemies'])
+            self.collectibles = copy.deepcopy(self.saved_space_state['collectibles'])
+            self.nebulae = copy.deepcopy(self.saved_space_state['nebulae'])
+            self.particle_system = copy.deepcopy(self.saved_space_state['particle_system'])
+            self.selected_target = copy.deepcopy(self.saved_space_state['selected_target'])
+            self.target_distance = self.saved_space_state['target_distance']
+            self.scan_timer = self.saved_space_state['scan_timer']
+            self.paused = self.saved_space_state['paused']
+            self.game_over = self.saved_space_state['game_over']
+            # Place rocket just above planet
+            direction = np.array([1.0, 0.0])
+            if planet is not None:
+                self.rocket.position = planet.position + direction * (planet.radius + self.rocket.radius + 10)
+            self.rocket.velocity = np.array([0, -200])
+            self.rocket.landed_on_planet = None
+            if rocket_state:
+                for k, v in rocket_state.items():
+                    if hasattr(self.rocket, k):
+                        setattr(self.rocket, k, v)
+            self.scene = "space"
+            self.planet_surface_scene = None
+            self.camera.set_target(self.rocket)
+            self.camera.position = self.rocket.position.copy()
+            self.fade_direction = -1
+            self.fade_alpha = 255
+            self.scene_transition = None
+            self.next_scene = None
+            self.saved_space_state = None
+        else:
+            # fallback: old behavior
+            direction = np.array([1.0, 0.0])
+            self.rocket.position = planet.position + direction * (planet.radius + self.rocket.radius + 10)
+            self.rocket.velocity = np.array([0, -200])
+            self.rocket.landed_on_planet = None
+            for k, v in rocket_state.items():
+                if hasattr(self.rocket, k):
+                    setattr(self.rocket, k, v)
+            self.scene = "space"
+            self.planet_surface_scene = None
+            self.camera.set_target(self.rocket)
+            self.camera.position = self.rocket.position.copy()
+            self.fade_direction = -1
+            self.fade_alpha = 255
+            self.scene_transition = None
+            self.next_scene = None
 
 # --- Modular PlanetSurfaceScene ---
 class PlanetSurfaceScene:
@@ -3582,6 +3720,210 @@ class SurfacePlayer:
         fuel = font.render(f"Fuel: {int(self.fuel)}", True, (100, 255, 255))
         surface.blit(health, (rect.x, rect.y - 22))
         surface.blit(fuel, (rect.x, rect.y - 10))
+
+class BiomeSurfaceScene:
+    def __init__(self, game, planet, rocket_state, spawn_player_pos=(400, 480)):
+        self.game = game
+        self.planet = planet
+        self.rocket_state = rocket_state.copy()
+        self.width = 2000
+        self.height = 600
+        self.surface_scroll = 0
+        # Default ground setup
+        self.sand_top_y = int(self.height * 0.6)
+        self.sand_height = self.height - self.sand_top_y
+        self.player = SurfacePlayer(self, rocket_state, (spawn_player_pos[0], self.sand_top_y))
+        self.ship_pos = [400, self.height - 120]
+        self.enter_ship_prompt = False
+        self.prompt_timer = 0
+        self.prompt_active = False
+        self.transitioning = False
+        self.ambient_elements = []
+        self.background_layers = []
+        self.hazards = []
+        self.dust_storm_timer = 0
+        self.dust_storm_active = False
+        self.dust_storm_alpha = 0
+        self.load_assets()
+        self.generate_terrain_and_props()
+    def load_assets(self):
+        # No assets for generic biome
+        self.sand_color = (200, 180, 120)
+        self.sky_color = (120, 180, 255)
+    def generate_terrain_and_props(self):
+        # Simple ground and no props
+        self.sand_top_y = int(self.height * 0.6)
+        self.sand_height = self.height - self.sand_top_y
+    def update(self, dt, keys):
+        self.player.update(dt, keys)
+        dist = abs(self.player.x - self.ship_pos[0])
+        if dist < 60:
+            self.enter_ship_prompt = True
+            if not self.prompt_active:
+                self.prompt_timer += dt
+                if self.prompt_timer > 0.2:
+                    self.prompt_active = True
+        else:
+            self.enter_ship_prompt = False
+            self.prompt_active = False
+            self.prompt_timer = 0
+        if self.prompt_active and keys[pygame.K_e] and not self.transitioning:
+            self.transitioning = True
+            self.game.exit_planet_surface_scene(self.planet, self.rocket_state)
+    def render(self, surface):
+        # Simple sky
+        surface.fill(self.sky_color)
+        # Simple sand ground
+        pygame.draw.rect(surface, self.sand_color, (0, self.sand_top_y, self.width, self.sand_height))
+        # Landed rocket
+        ship_rect = pygame.Rect(self.ship_pos[0] - 40, self.height - 140, 80, 40)
+        pygame.draw.rect(surface, (180, 180, 200), ship_rect)
+        pygame.draw.polygon(surface, (200, 200, 255), [
+            (self.ship_pos[0] - 40, self.height - 140),
+            (self.ship_pos[0] + 40, self.height - 140),
+            (self.ship_pos[0], self.height - 170)
+        ])
+        # Player
+        self.player.render(surface)
+        # Prompt
+        if self.enter_ship_prompt and self.prompt_active:
+            font = pygame.font.SysFont(None, 32)
+            prompt = font.render("Enter Rocket? (Press E)", True, (255, 255, 0))
+            surface.blit(prompt, (self.ship_pos[0] - prompt.get_width()//2, self.sand_top_y - 60))
+        # Info
+        font = pygame.font.SysFont(None, 28)
+        info = font.render(f"{self.planet.name} Surface", True, (200, 200, 255))
+        surface.blit(info, (20, 20))
+    def get_rocket_state(self):
+        state = self.rocket_state.copy()
+        state["health"] = self.player.health
+        state["fuel"] = self.player.fuel
+        state["position"] = self.planet.position.copy()
+        return state
+
+class DesertSurfaceScene(BiomeSurfaceScene):
+    def load_assets(self):
+        self.asset_dir = os.path.join("Assets", "desert")
+        try:
+            self.sand_img = pygame.image.load(os.path.join(self.asset_dir, "sand.png")).convert_alpha()
+        except Exception:
+            self.sand_img = pygame.Surface((100, 100))
+            self.sand_img.fill((200, 180, 120))
+        try:
+            self.bg_img = pygame.image.load(os.path.join(self.asset_dir, "desertbackground.png")).convert_alpha()
+        except Exception:
+            self.bg_img = pygame.Surface((200, 100))
+            self.bg_img.fill((220, 200, 180))
+        self.cactus_imgs = []
+        for i in range(1, 5):
+            try:
+                img = pygame.image.load(os.path.join(self.asset_dir, f"cactus{i}.png")).convert_alpha()
+            except Exception:
+                img = pygame.Surface((24, 48))
+                img.fill((60, 200, 60))
+            self.cactus_imgs.append(img)
+        self.rock_imgs = []
+        for i in range(1, 3):
+            try:
+                img = pygame.image.load(os.path.join(self.asset_dir, f"rock{i}.png")).convert_alpha()
+            except Exception:
+                img = pygame.Surface((32, 20))
+                img.fill((120, 120, 120))
+            self.rock_imgs.append(img)
+        self.sun_img = pygame.Surface((120, 120), pygame.SRCALPHA)
+        pygame.draw.circle(self.sun_img, (255, 255, 180, 220), (60, 60), 60)
+    def generate_terrain_and_props(self):
+        # --- Sand ground setup ---
+        self.sand_top_y = int(self.height * 0.6)  # Player feet Y
+        self.sand_height = self.height - self.sand_top_y
+        sand_scaled = pygame.transform.scale(self.sand_img, (self.sand_img.get_width(), self.sand_height))
+        self.sand_tiles = []
+        tile_w = sand_scaled.get_width()
+        for i in range(22):
+            self.sand_tiles.append({'img': sand_scaled, 'x': i * tile_w, 'y': self.sand_top_y})
+        # --- Dune background setup ---
+        dune_h = self.bg_img.get_height()
+        dune_w = self.bg_img.get_width()
+        dune_y = self.sand_top_y - dune_h  # Dunes bottom aligns with sand top
+        self.dune_tiles = []
+        for i in range((self.width // dune_w) + 3):
+            self.dune_tiles.append({'img': self.bg_img, 'x': i * dune_w, 'y': dune_y})
+        # --- Sky gradient setup ---
+        self.sky_gradient = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        for y in range(self.height):
+            t = y / self.height
+            r = int(255 * (1-t) + 255 * t)
+            g = int(120 * (1-t) + 220 * t)
+            b = int(40 * (1-t) + 180 * t)
+            a = 255
+            pygame.draw.line(self.sky_gradient, (r, g, b, a), (0, y), (self.width, y))
+        # --- Sun animation ---
+        self.sun_base_x = self.width // 2
+        self.sun_base_y = self.sand_top_y - 40
+        # --- Prop placement with Z-layering ---
+        self.props_behind = []
+        self.props_infront = []
+        ground_y = self.sand_top_y  # Top of sand, player feet Y
+        for i in range(16):
+            img = random.choice(self.cactus_imgs + self.rock_imgs)
+            scale = random.uniform(0.7, 1.2)
+            prop_img = pygame.transform.rotozoom(img, random.uniform(-10, 10), scale)
+            prop_w, prop_h = prop_img.get_size()
+            x = random.randint(60, self.width - 60)
+            y = ground_y + self.sand_height  # Place bottom of prop flush with sand top
+            rect = prop_img.get_rect(midbottom=(x, y))
+            z = random.choices(['behind', 'infront'], weights=[70, 30])[0]
+            if z == 'behind':
+                self.props_behind.append({'img': prop_img, 'rect': rect})
+            else:
+                self.props_infront.append({'img': prop_img, 'rect': rect})
+            # Hazards only for cacti behind/infront
+            if img in self.cactus_imgs:
+                self.hazards.append({'type': 'cactus', 'rect': rect})
+        # Add sand pits (hazards)
+        for i in range(2):
+            pit_x = random.randint(200, self.width - 200)
+            pit_rect = pygame.Rect(pit_x, self.sand_top_y + self.sand_height - 30, 60, 18)
+            self.hazards.append({'type': 'sandpit', 'rect': pit_rect})
+    def render(self, surface):
+        # --- Sky gradient (furthest back) ---
+        surface.blit(self.sky_gradient, (0, 0))
+        # --- Sun animation (on horizon) ---
+        sun_x = self.sun_base_x + 120 * math.sin(pygame.time.get_ticks() * 0.00015)
+        sun_y = self.sun_base_y + 10 * math.cos(pygame.time.get_ticks() * 0.0002)
+        surface.blit(self.sun_img, (sun_x - 60, sun_y - 60), special_flags=pygame.BLEND_ADD)
+        # --- Dune background (behind sand, above sky) ---
+        for dune in self.dune_tiles:
+            surface.blit(dune['img'], (dune['x'], dune['y']))
+        # --- Sand ground (flat, walkable) ---
+        for tile in self.sand_tiles:
+            surface.blit(tile['img'], (tile['x'], tile['y']))
+        # --- Sand pits (hazards) ---
+        for hazard in self.hazards:
+            if hazard['type'] == 'sandpit':
+                pygame.draw.ellipse(surface, (220, 200, 120), hazard['rect'])
+        # --- Props behind player ---
+        for prop in self.props_behind:
+            surface.blit(prop['img'], prop['rect'])
+        # --- Player (always in front of behind props, behind infront props) ---
+        self.player.render(surface)
+        # --- Props in front of player ---
+        for prop in self.props_infront:
+            surface.blit(prop['img'], prop['rect'])
+        # --- Prompt ---
+        if self.enter_ship_prompt and self.prompt_active:
+            font = pygame.font.SysFont(None, 32)
+            prompt = font.render("Enter Rocket? (Press E)", True, (255, 255, 0))
+            surface.blit(prompt, (self.ship_pos[0] - prompt.get_width()//2, self.sand_top_y - 60))
+        # --- Info ---
+        font = pygame.font.SysFont(None, 28)
+        info = font.render(f"{self.planet.name} Surface (Desert)", True, (200, 200, 255))
+        surface.blit(info, (20, 20))
+        # --- Dust storm overlay ---
+        if self.dust_storm_alpha > 0:
+            overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            overlay.fill((200, 180, 120, int(self.dust_storm_alpha)))
+            surface.blit(overlay, (0, 0))
 
 # Start the game
 if __name__ == "__main__":
