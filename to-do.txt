@@ -1,0 +1,6 @@
+Implement modular PlanetSurfaceScene (2D side-scroller) with player, terrain, ambient elements, and landed rocket. Player can walk, jump, and interact. Show 'Enter Rocket?' prompt near rocket. On E, trigger fade-out and transition to space scene, preserving state.
+Refactor main game loop to support seamless scene switching and robust state passing (fuel, health, mission, etc.) between surface and space scenes. Ensure camera and UI are scene-aware.
+Implement robust fade-in/fade-out transition system for entering/exiting rocket and landing/crash events. Ensure transitions never get stuck and all components are restored after transition.
+Optimize rendering and physics: reduce render distance, cull off-screen objects/particles, and prioritize FPS. Modularize gravity and landing logic for all planets. Implement smooth, physics-driven gravity and slingshot effects.
+Implement planetary landing and re-entry system: show 'Land on [Planet Name]?' prompt near planets, fade to surface scene on accept, auto-crash landing on high-speed impact, display planet info, and fade to surface scene with player outside rocket.
+Test and debug all transitions, gravity, landing, and performance. Ensure all UI, camera, and controls are correct in both scenes. Fix any remaining black screen or missing object issues.
