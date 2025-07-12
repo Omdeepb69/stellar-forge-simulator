@@ -100,42 +100,63 @@ class CutsceneManager:
                 surface.blit(text, text_rect)
 
 class FinalBossScene:
-    """Multi-phase final boss battle scene after collecting all 3 items."""
+    """Multi-phase final boss battle scene with exact asset and behavior specifications."""
+    
     def __init__(self, game):
         self.game = game
         self.width = game.screen_width
         self.height = game.screen_height
+        
+        # Environment setup
+        self.floor_y = self.height - 80  # Floor level
+        self.pillars = []
+        self.props = []
         
         # Phase management
         self.current_phase = 1
         self.phase_timer = 0
         self.phase_transition_timer = 0
         self.is_transitioning = False
+        self.victory = False
+        self.victory_timer = 0
         
         # Player state
-        self.player_health = game.rocket.health
-        self.player_max_health = game.rocket.max_health
-        self.player_position = [100, self.height - 150]  # Start near ground
+        self.player_health = 100
+        self.player_max_health = 100
+        self.player_pos = [self.width // 2, self.floor_y - 60]
+        self.player_position = [self.width // 2, self.floor_y - 60]  # Alias for compatibility
         self.player_facing_right = True
         self.player_sword_drawn = False
         self.player_sword_swinging = False
         self.player_sword_timer = 0
         self.player_sword_cooldown = 0
         self.player_sword_frame = 0
+        self.player_speed = 200
+        
+        # Enhanced player animation system
+        self.player_anim_state = "idle"  # idle, draw, swing
+        self.player_anim_playing = False
+        self.player_anim_timer = 0
+        self.player_anim_fps = 12
+        self.player_idle_float_offset = 0
+        self.player_idle_float_timer = 0
+        self.player_idle_float_speed = 2.0
+        self.player_idle_float_amplitude = 3
         
         # Boss state
         self.boss_health = 100
         self.boss_max_health = 100
-        self.boss_position = [self.width // 2, self.height // 2]
+        self.boss_pos = [self.width // 2, self.height // 2]
+        self.boss_position = [self.width // 2, self.height // 2]  # Alias for compatibility
         self.boss_facing_right = False
         self.boss_sword_swinging = False
         self.boss_sword_timer = 0
         self.boss_attack_timer = 0
         self.boss_attack_cooldown = 2.0
         self.boss_floating_offset = 0
-        self.boss_timer = 0
-        self.attack_pattern = 0
         self.boss_sword_frame = 0
+        self.boss_swing_animation_speed = 0.1
+        self.boss_defeated = False
         
         # Combat entities
         self.aliens = []
@@ -143,23 +164,17 @@ class FinalBossScene:
         self.boss_bullets = []
         self.player_bullets = []
         
-        # Victory state
-        self.boss_defeated = False
-        self.victory_timer = 0
+        # Visual effects
+        self.fade_alpha = 255
+        self.fade_direction = -1  # Start with fade in
         
-        # Fade effects
-        self.fade_alpha = 255  # Start with fade in
-        self.fade_direction = -1  # Fade in
-        
-        # Load assets
+        # Load all assets and setup environment
         self.load_assets()
         self.setup_environment()
-        
-        # Initialize first phase
         self.start_phase(1)
     
     def load_assets(self):
-        """Load all boss battle assets."""
+        """Load all boss battle assets from the specified folders."""
         try:
             # Boss fight environment assets
             self.background_img = pygame.image.load("assets/boss_fight/background.png").convert_alpha()
@@ -188,29 +203,38 @@ class FinalBossScene:
             self.boss_orb_img = pygame.image.load("assets/finalboss/orb.png").convert_alpha()
             self.boss_orb_img = pygame.transform.scale(self.boss_orb_img, (30, 30))
             
-            # Boss sword swing animation
+            # Boss sword swing animation frames
             self.boss_swing_frames = []
             for i in range(1, 5):
                 frame = pygame.image.load(f"assets/finalboss/boss_swing/bossSwordSwing{i}.png").convert_alpha()
                 frame = pygame.transform.scale(frame, (100, 100))
                 self.boss_swing_frames.append(frame)
             
-            # Player assets (reuse from surface scenes)
+            # Player assets
             try:
                 self.player_idle_img = pygame.image.load("assets/player/mainCharStill.png").convert_alpha()
             except:
                 self.player_idle_img = pygame.image.load("assets/player/idle.png").convert_alpha()
             self.player_idle_img = pygame.transform.scale(self.player_idle_img, (50, 80))
             
-            # Load sword frames
+            # Player sword animation frames - load all frames from swing folder
             self.player_sword_frames = []
-            for i in range(1, 5):
-                try:
-                    frame = pygame.image.load(f"assets/player/swing/swordSwing{i}.png").convert_alpha()
-                    frame = pygame.transform.scale(frame, (60, 80))
-                    self.player_sword_frames.append(frame)
-                except:
-                    # Create placeholder sword frame if not found
+            import os
+            swing_dir = "assets/player/swing"
+            if os.path.isdir(swing_dir):
+                files = sorted([f for f in os.listdir(swing_dir) if f.endswith(".png")])
+                for fname in files:
+                    try:
+                        frame = pygame.image.load(os.path.join(swing_dir, fname)).convert_alpha()
+                        frame = pygame.transform.scale(frame, (60, 80))
+                        self.player_sword_frames.append(frame)
+                    except Exception as e:
+                        print(f"Error loading sword frame {fname}: {e}")
+                        continue
+            
+            # If no frames loaded, create placeholders
+            if not self.player_sword_frames:
+                for i in range(4):
                     frame = pygame.Surface((60, 80), pygame.SRCALPHA)
                     pygame.draw.rect(frame, (255, 255, 0), (20, 20, 40, 60))
                     self.player_sword_frames.append(frame)
@@ -219,7 +243,6 @@ class FinalBossScene:
             
         except Exception as e:
             print(f"[FinalBossScene] Error loading assets: {e}")
-            # Create placeholder assets
             self.create_placeholder_assets()
     
     def create_placeholder_assets(self):
@@ -264,6 +287,15 @@ class FinalBossScene:
         self.player_idle_img = pygame.Surface((50, 80))
         self.player_idle_img.fill((0, 255, 255))
         
+        # Try to load the actual player sprite
+        try:
+            self.player_idle_img = pygame.image.load("assets/player/mainCharStill.png").convert_alpha()
+            self.player_idle_img = pygame.transform.scale(self.player_idle_img, (50, 80))
+        except Exception as e:
+            print(f"Could not load player sprite: {e}")
+            # Keep the placeholder
+            pass
+        
         self.player_sword_frames = []
         for i in range(4):
             frame = pygame.Surface((60, 80))
@@ -271,25 +303,28 @@ class FinalBossScene:
             self.player_sword_frames.append(frame)
     
     def setup_environment(self):
-        """Setup the boss battle environment with props."""
-        # Floor level
-        self.floor_y = self.height - 100
-        
-        # Pillar positions (symmetrical)
+        """Setup the boss battle environment with props as specified."""
+        # Pillar positions (symmetrical on both sides)
         self.pillars = [
             (100, self.floor_y - 250),  # Left pillar
             (self.width - 220, self.floor_y - 250)  # Right pillar
         ]
         
-        # Scattered props
-        self.props = [
-            {"type": "skull", "pos": [200, self.floor_y - 50], "img": self.skull_img},
-            {"type": "testtube", "pos": [300, self.floor_y - 60], "img": self.testtube_img},
-            {"type": "skull", "pos": [self.width - 250, self.floor_y - 50], "img": self.skull_img},
-            {"type": "testtube", "pos": [self.width - 350, self.floor_y - 60], "img": self.testtube_img},
-            {"type": "skull", "pos": [self.width // 2 - 100, self.floor_y - 50], "img": self.skull_img},
-            {"type": "testtube", "pos": [self.width // 2 + 100, self.floor_y - 60], "img": self.testtube_img}
-        ]
+        # Randomly scatter props on the floor
+        import random
+        self.props = []
+        
+        # Scatter skulls
+        for _ in range(4):
+            x = random.randint(150, self.width - 150)
+            y = self.floor_y - 50
+            self.props.append({"type": "skull", "pos": [x, y], "img": self.skull_img})
+        
+        # Scatter testtubes
+        for _ in range(3):
+            x = random.randint(150, self.width - 150)
+            y = self.floor_y - 60
+            self.props.append({"type": "testtube", "pos": [x, y], "img": self.testtube_img})
     
     def start_phase(self, phase):
         """Start a new phase of the boss battle."""
@@ -302,22 +337,22 @@ class FinalBossScene:
         self.aliens.clear()
         self.alien_bullets.clear()
         self.boss_bullets.clear()
-        self.player_bullets.clear()
         
         if phase == 1:
-            # Phase 1: 5 Alien Minions
+            # Phase 1: 5 Alien Minions (Floating, Ranged)
             self.spawn_aliens(5)
-            print("[FinalBossScene] Phase 1: Alien Minions")
+            print("[FinalBossScene] Phase 1: 5 Alien Minions")
             
         elif phase == 2:
             # Phase 2: Final Boss + 10 Alien Minions
             self.spawn_aliens(10)
-            self.boss_position = [self.width // 2, self.height // 2]
-            print("[FinalBossScene] Phase 2: Final Boss + Alien Minions")
+            self.boss_pos = [self.width // 2, self.height // 2]
+            self.boss_health = 100
+            print("[FinalBossScene] Phase 2: Final Boss + 10 Alien Minions")
             
         elif phase == 3:
             # Phase 3: Final Boss Sword Duel
-            self.boss_position = [self.width // 2, self.height // 2]
+            self.boss_pos = [self.width // 2, self.height // 2]
             self.boss_health = 50  # Reset boss health for final phase
             print("[FinalBossScene] Phase 3: Final Boss Sword Duel")
     
@@ -392,46 +427,77 @@ class FinalBossScene:
         self.check_collisions()
     
     def update_player(self, dt, keys):
-        """Update player movement and combat."""
-        # Player movement
-        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
-            self.player_position[0] -= 200 * dt
+        """Update player movement and combat with enhanced animation system."""
+        # Track if player is moving
+        moving = False
+        
+        # Player movement (Arrow keys only as requested)
+        if keys[pygame.K_LEFT]:
+            self.player_position[0] -= self.player_speed * dt
+            self.player_pos[0] = self.player_position[0]  # Keep in sync
             self.player_facing_right = False
-        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
-            self.player_position[0] += 200 * dt
+            moving = True
+        if keys[pygame.K_RIGHT]:
+            self.player_position[0] += self.player_speed * dt
+            self.player_pos[0] = self.player_position[0]  # Keep in sync
             self.player_facing_right = True
-        if keys[pygame.K_UP] or keys[pygame.K_w]:
-            self.player_position[1] -= 200 * dt
-        if keys[pygame.K_DOWN] or keys[pygame.K_s]:
-            self.player_position[1] += 200 * dt
+            moving = True
+        if keys[pygame.K_UP]:
+            self.player_position[1] -= self.player_speed * dt
+            self.player_pos[1] = self.player_position[1]  # Keep in sync
+            moving = True
+        if keys[pygame.K_DOWN]:
+            self.player_position[1] += self.player_speed * dt
+            self.player_pos[1] = self.player_position[1]  # Keep in sync
+            moving = True
         
         # Keep player on screen
         self.player_position[0] = max(50, min(self.width - 50, self.player_position[0]))
         self.player_position[1] = max(50, min(self.height - 50, self.player_position[1]))
+        self.player_pos[0] = self.player_position[0]  # Keep in sync
+        self.player_pos[1] = self.player_position[1]  # Keep in sync
         
-        # Sword combat
-        if keys[pygame.K_f]:
-            self.player_sword_drawn = True
+        # Idle floating animation (when not moving and not in combat animation)
+        if not moving and not self.player_anim_playing:
+            self.player_idle_float_timer += dt
+            self.player_idle_float_offset = self.player_idle_float_amplitude * math.sin(self.player_idle_float_timer * self.player_idle_float_speed)
+        else:
+            self.player_idle_float_offset = 0
         
-        if keys[pygame.K_SPACE] and self.player_sword_drawn and self.player_sword_cooldown <= 0:
-            self.player_sword_swinging = True
-            self.player_sword_timer = 0
-            self.player_sword_cooldown = 0.5
-            self.player_sword_frame = 0
+        # Enhanced sword combat system
+        if not self.player_anim_playing:  # Only allow new animations when not already playing
+            if keys[pygame.K_f]:  # Draw sword
+                self.player_anim_state = "draw"
+                self.player_anim_playing = True
+                self.player_anim_timer = 0
+                self.player_sword_frame = 0
+                self.player_sword_drawn = True
+            
+            elif keys[pygame.K_SPACE] and self.player_sword_drawn and self.player_sword_cooldown <= 0:  # Swing sword
+                self.player_anim_state = "swing"
+                self.player_anim_playing = True
+                self.player_anim_timer = 0
+                self.player_sword_frame = 0
+                self.player_sword_cooldown = 0.5
+                self.player_sword_swinging = True
+        
+        # Update animation system
+        if self.player_anim_playing:
+            self.player_anim_timer += dt
+            if self.player_anim_timer >= 1.0 / self.player_anim_fps:
+                self.player_anim_timer = 0
+                self.player_sword_frame += 1
+                
+                # Check if animation is complete
+                if self.player_sword_frame >= len(self.player_sword_frames):
+                    self.player_anim_playing = False
+                    self.player_anim_state = "idle"
+                    self.player_sword_frame = 0
+                    self.player_sword_swinging = False
         
         # Update sword cooldown
         if self.player_sword_cooldown > 0:
             self.player_sword_cooldown -= dt
-        
-        # Update sword swing animation
-        if self.player_sword_swinging:
-            self.player_sword_timer += dt
-            if self.player_sword_timer >= 0.1:  # 10fps animation
-                self.player_sword_timer = 0
-                self.player_sword_frame += 1
-                if self.player_sword_frame >= 4:
-                    self.player_sword_swinging = False
-                    self.player_sword_frame = 0
     
     def update_boss(self, dt):
         """Update boss AI and behavior."""
@@ -442,6 +508,7 @@ class FinalBossScene:
         if self.current_phase == 2:
             # Phase 2: Gun boss
             self.boss_position[1] = boss_y
+            self.boss_pos[1] = self.boss_position[1]  # Keep in sync
             self.boss_attack_timer += dt
             
             if self.boss_attack_timer >= self.boss_attack_cooldown:
@@ -451,15 +518,18 @@ class FinalBossScene:
         elif self.current_phase == 3:
             # Phase 3: Sword boss
             self.boss_position[1] = boss_y
+            self.boss_pos[1] = self.boss_position[1]  # Keep in sync
             
             # Move towards player
             dx = self.player_position[0] - self.boss_position[0]
             if abs(dx) > 50:  # Don't get too close
                 if dx > 0:
                     self.boss_position[0] += 100 * dt
+                    self.boss_pos[0] = self.boss_position[0]  # Keep in sync
                     self.boss_facing_right = True
                 else:
                     self.boss_position[0] -= 100 * dt
+                    self.boss_pos[0] = self.boss_position[0]  # Keep in sync
                     self.boss_facing_right = False
             
             # Sword attack
@@ -645,15 +715,22 @@ class FinalBossScene:
                 boss_img = pygame.transform.flip(boss_img, True, False)
             surface.blit(boss_img, (self.boss_position[0] - 50, self.boss_position[1] - 50))
         
-        # Draw player
-        if self.player_sword_swinging:
-            player_img = self.player_sword_frames[self.player_sword_frame]
+        # Draw player with enhanced animation system
+        if self.player_anim_playing and self.player_sword_frames:
+            # Use sword animation frames
+            frame_index = min(self.player_sword_frame, len(self.player_sword_frames) - 1)
+            player_img = self.player_sword_frames[frame_index]
         else:
+            # Use idle sprite
             player_img = self.player_idle_img
         
-        if self.player_facing_right:
+        # Flip sprite if facing left
+        if not self.player_facing_right:
             player_img = pygame.transform.flip(player_img, True, False)
-        surface.blit(player_img, (self.player_position[0] - 25, self.player_position[1] - 40))
+        
+        # Apply floating offset for idle animation
+        draw_y = self.player_position[1] - 40 + self.player_idle_float_offset
+        surface.blit(player_img, (self.player_position[0] - 25, draw_y))
         
         # Draw projectiles
         for bullet in self.alien_bullets:
@@ -759,75 +836,118 @@ class FinalBossScene:
         
         # Controls
         controls_font = pygame.font.SysFont(None, 24)
-        controls_text = controls_font.render("WASD: Move, F: Draw Sword, SPACE: Swing", True, (200, 200, 200))
+        controls_text = controls_font.render("Arrow Keys: Move, F: Draw Sword, SPACE: Swing", True, (200, 200, 200))
         surface.blit(controls_text, (20, self.height - 30))
     
     def draw(self, surface):
-        """Draw the boss battle scene."""
-        # Background
-        surface.fill((20, 10, 30))  # Dark purple space
+        """Draw the complete boss battle scene with proper asset usage."""
+        # --- Background (furthest back) ---
+        # Use the background.png asset scaled to fill the entire screen
+        surface.blit(self.background_img, (0, 0))
         
-        # Draw stars
-        for i in range(50):
-            x = (i * 37) % self.width
-            y = (i * 73) % self.height
-            brightness = (i * 13) % 255
-            pygame.draw.circle(surface, (brightness, brightness, brightness), (x, y), 1)
+        # --- Floor (dark metallic theme) ---
+        # Create a dark metallic floor at the bottom
+        floor_color = (30, 30, 35)  # Dark metallic gray
+        floor_height = 80
+        pygame.draw.rect(surface, floor_color, (0, self.floor_y, self.width, floor_height))
         
-        # Draw boss
-        boss_color = (255, 0, 0) if self.boss_health > 50 else (255, 100, 0)
-        pygame.draw.circle(surface, boss_color, (int(self.boss_position[0]), int(self.boss_position[1])), 60)
+        # Add some metallic highlights to the floor
+        highlight_color = (60, 60, 70)
+        for i in range(0, self.width, 100):
+            pygame.draw.line(surface, highlight_color, (i, self.floor_y), (i, self.height), 2)
         
-        # Draw player
-        pygame.draw.circle(surface, (0, 255, 0), (int(self.player_position[0]), int(self.player_position[1])), 20)
+        # --- Pillars (symmetrical on both sides) ---
+        # Use pillar.png asset placed symmetrically
+        for pillar_x, pillar_y in self.pillars:
+            surface.blit(self.pillar_img, (pillar_x, pillar_y))
         
-        # Draw bullets
-        for bullet in self.player_bullets:
-            pygame.draw.circle(surface, (255, 255, 0), (int(bullet['pos'][0]), int(bullet['pos'][1])), 5)
+        # --- Props (scattered on floor, behind characters) ---
+        # Randomly scatter skull.png and testtube.png on the floor
+        for prop in self.props:
+            surface.blit(prop["img"], prop["pos"])
         
+        # --- Aliens (floating minions) ---
+        for alien in self.aliens:
+            alien_img = self.alien_img
+            if alien["facing_right"]:
+                alien_img = pygame.transform.flip(self.alien_img, True, False)
+            surface.blit(alien_img, (alien["pos"][0] - 30, alien["pos"][1] - 30))
+        
+        # --- Boss (different forms per phase) ---
+        if self.current_phase == 2:
+            # Gun boss - use bossGun.png
+            surface.blit(self.boss_gun_img, (self.boss_position[0] - 60, self.boss_position[1] - 60))
+        elif self.current_phase == 3:
+            # Sword boss - use boss swing animation frames
+            if self.boss_sword_swinging:
+                boss_img = self.boss_swing_frames[self.boss_sword_frame]
+            else:
+                boss_img = self.boss_swing_frames[0]  # Idle frame
+            
+            if self.boss_facing_right:
+                boss_img = pygame.transform.flip(boss_img, True, False)
+            surface.blit(boss_img, (self.boss_position[0] - 50, self.boss_position[1] - 50))
+        
+        # --- Player with enhanced animation system ---
+        if self.player_anim_playing and self.player_sword_frames:
+            # Use sword animation frames
+            frame_index = min(self.player_sword_frame, len(self.player_sword_frames) - 1)
+            player_img = self.player_sword_frames[frame_index]
+        else:
+            # Use idle sprite
+            player_img = self.player_idle_img
+        
+        # Flip sprite if facing left
+        if not self.player_facing_right:
+            player_img = pygame.transform.flip(player_img, True, False)
+        
+        # Apply floating offset for idle animation
+        draw_y = self.player_position[1] - 40 + self.player_idle_float_offset
+        surface.blit(player_img, (self.player_position[0] - 25, draw_y))
+        
+        # --- Projectiles ---
+        # Alien orbs
+        for bullet in self.alien_bullets:
+            surface.blit(self.alien_orb_img, (bullet["pos"][0] - 10, bullet["pos"][1] - 10))
+        
+        # Boss orbs
         for bullet in self.boss_bullets:
-            pygame.draw.circle(surface, (255, 0, 0), (int(bullet['pos'][0]), int(bullet['pos'][1])), 8)
+            surface.blit(self.boss_orb_img, (bullet["pos"][0] - 15, bullet["pos"][1] - 15))
         
-        # Draw health bars
-        # Boss health
-        boss_health_width = 200
-        boss_health_height = 20
-        boss_health_x = self.width // 2 - boss_health_width // 2
-        boss_health_y = 50
-        pygame.draw.rect(surface, (100, 100, 100), (boss_health_x, boss_health_y, boss_health_width, boss_health_height))
-        health_percent = self.boss_health / self.boss_max_health
-        pygame.draw.rect(surface, (255, 0, 0), (boss_health_x, boss_health_y, int(boss_health_width * health_percent), boss_health_height))
-        pygame.draw.rect(surface, (255, 255, 255), (boss_health_x, boss_health_y, boss_health_width, boss_health_height), 2)
+        # --- UI Overlay ---
+        self.draw_ui(surface)
         
-        # Player health
-        player_health_width = 200
-        player_health_height = 20
-        player_health_x = 50
-        player_health_y = 50
-        pygame.draw.rect(surface, (100, 100, 100), (player_health_x, player_health_y, player_health_width, player_health_height))
-        health_percent = self.player_health / self.player_max_health
-        pygame.draw.rect(surface, (0, 255, 0), (player_health_x, player_health_y, int(player_health_width * health_percent), player_health_height))
-        pygame.draw.rect(surface, (255, 255, 255), (player_health_x, player_health_y, player_health_width, player_health_height), 2)
+        # --- Phase Transition Overlay ---
+        if self.is_transitioning:
+            overlay = pygame.Surface((self.width, self.height))
+            overlay.fill((0, 0, 0))
+            overlay.set_alpha(128)
+            surface.blit(overlay, (0, 0))
+            
+            font = pygame.font.SysFont(None, 48)
+            phase_text = f"Phase {self.current_phase}"
+            text_surface = font.render(phase_text, True, (255, 255, 255))
+            surface.blit(text_surface, (self.width // 2 - text_surface.get_width() // 2, 
+                                      self.height // 2 - text_surface.get_height() // 2))
         
-        # Draw UI text
-        font = pygame.font.SysFont(None, 36)
-        boss_text = font.render("FINAL BOSS", True, (255, 255, 255))
-        surface.blit(boss_text, (self.width // 2 - boss_text.get_width() // 2, 20))
-        
-        controls_text = font.render("WASD: Move, SPACE: Shoot", True, (200, 200, 200))
-        surface.blit(controls_text, (20, self.height - 40))
-        
-        # Victory screen
+        # --- Victory Screen ---
         if self.boss_defeated:
+            overlay = pygame.Surface((self.width, self.height))
+            overlay.fill((0, 0, 0))
+            overlay.set_alpha(180)
+            surface.blit(overlay, (0, 0))
+            
             victory_font = pygame.font.SysFont(None, 72)
             victory_text = victory_font.render("VICTORY!", True, (255, 255, 0))
-            surface.blit(victory_text, (self.width // 2 - victory_text.get_width() // 2, self.height // 2 - 50))
+            surface.blit(victory_text, (self.width // 2 - victory_text.get_width() // 2, 
+                                      self.height // 2 - 100))
             
             subtitle_font = pygame.font.SysFont(None, 36)
             subtitle_text = subtitle_font.render("You have saved the galaxy!", True, (255, 255, 255))
-            surface.blit(subtitle_text, (self.width // 2 - subtitle_text.get_width() // 2, self.height // 2 + 20))
+            surface.blit(subtitle_text, (self.width // 2 - subtitle_text.get_width() // 2, 
+                                       self.height // 2 - 20))
         
-        # Fade overlay
+        # --- Fade Overlay ---
         if self.fade_alpha > 0:
             fade_overlay = pygame.Surface(surface.get_size())
             fade_overlay.fill((0, 0, 0))
@@ -4088,8 +4208,10 @@ class Game:
         # Check for game completion (all 3 items collected)
         if len(self.collected_items) >= 3 and not self.cutscene_triggered:
             self.cutscene_triggered = True
-            self.cutscene_manager.play_cutscene("Assets/cutscene/colfin.mp4")
-            print("[Game] All 3 items collected! Starting final cutscene...")
+            # Start boss battle immediately (no cutscene)
+            self.final_boss_scene = FinalBossScene(self)
+            self.scene = "final_boss"
+            print("[Game] All 3 items collected! Starting final boss battle...")
         
         # Update cutscene manager
         self.cutscene_manager.update(dt)
@@ -4473,6 +4595,19 @@ class Game:
         self.fade_direction = 1  # Fade out
         self.scene_transition = "to_stronghold"
         self.next_scene = planet
+    
+    def start_final_boss_battle(self):
+        """Start the final boss battle directly (shortcut)."""
+        print("Starting Final Boss Battle...")
+        # Set up the game state as if all items were collected
+        self.collected_items = {"desert", "forest", "icy"}
+        
+        # Start boss battle immediately (no cutscene)
+        self.final_boss_scene = FinalBossScene(self)
+        self.scene = "final_boss"
+        self.fade_alpha = 0
+        self.fade_direction = 0
+        print("Boss battle started directly!")
 
 # --- Modular PlanetSurfaceScene ---
 class PlanetSurfaceScene:
@@ -5666,5 +5801,26 @@ class StrongholdScene:
 
 # Start the game
 if __name__ == "__main__":
-    game = Game()
-    game.run()
+    print("=== STELLAR FORGE SIMULATOR ===")
+    print("1. Start Normal Game")
+    print("2. Jump to Final Boss Battle (Shortcut)")
+    print("Enter your choice (1 or 2): ", end="")
+    
+    try:
+        choice = input().strip()
+        if choice == "2":
+            print("Starting Final Boss Battle shortcut...")
+            game = Game()
+            game.start_final_boss_battle()
+            game.run()
+        else:
+            print("Starting normal game...")
+            game = Game()
+            game.run()
+    except KeyboardInterrupt:
+        print("\nGame cancelled.")
+    except Exception as e:
+        print(f"Error: {e}")
+        print("Starting normal game as fallback...")
+        game = Game()
+        game.run()
