@@ -3270,7 +3270,6 @@ class Game:
         elif self.scene == "stronghold" and self.stronghold_scene:
             keys = pygame.key.get_pressed()
             self.stronghold_scene.update(dt, keys)
-            self.stronghold_scene.update_transition(dt)
         
         # Game over if fuel is zero
         if self.rocket.fuel <= 0:
@@ -3611,7 +3610,7 @@ class Game:
         # This will be called when a biome item is collected
         # The portals will be deactivated when the player returns to any planet surface
         # since setup_portal() checks if the biome is in collected_items
-        pass
+        print(f"[Game] Deactivated all portals for {biome_type} biome. Items collected: {len(self.collected_items)}/3")
     
     def start_stronghold_scene(self, planet):
         """Start a stronghold scene for the given planet."""
@@ -4744,8 +4743,11 @@ class StrongholdScene:
             self.collect_reward()
     def collect_reward(self):
         self.reward_collected = True
+        # Add biome item to collected items (X/3 tracking)
         self.game.collected_items.add(self.biome_type)
+        # Deactivate all portals for this biome
         self.game.deactivate_biome_portals(self.biome_type)
+        # Start fade-out to return to planet
         self.fade_out_on_reward = True
         self.fade_timer = 0
         self.fade_alpha = 0
