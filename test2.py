@@ -1494,7 +1494,7 @@ class Rocket(CelestialBody):
         else:
             self.update_position(dt)
             self.landing_velocity = np.linalg.norm(self.velocity)
-
+    
     def accept_quest(self, quest):
         """Accept a story quest."""
         self.current_quest = quest
@@ -1508,14 +1508,14 @@ class Rocket(CelestialBody):
             "time_limit": 0  # Story quests typically don't have time limits
         }
         self.generate_mission_targets()
-
+    
     def accept_mission(self, mission):
         """Accept a standard mission."""
         self.current_mission = mission
         self.mission_progress = 0
         self.mission_timer = mission.get("time_limit", 0)
         self.generate_mission_targets()
-
+    
     def generate_mission_targets(self):
         """Generate targets for the current mission."""
         if not self.current_mission:
@@ -1560,7 +1560,7 @@ class Rocket(CelestialBody):
                     "delivered": False,
                     "name": f"Outpost {i+1}"
                 })
-
+    
     def complete_mission(self):
         """Handle mission completion."""
         if not self.current_mission:
@@ -1592,7 +1592,7 @@ class Rocket(CelestialBody):
             self.mission_timer -= dt
             if self.mission_timer <= 0:
                 self.fail_mission("Time expired")
-                return
+            return
         if self.current_mission["type"] == "collect":
             if self.mission_progress >= self.current_mission["target_count"]:
                 self.complete_mission()
@@ -1758,7 +1758,7 @@ class Enemy:
             self.sprite_img = pygame.transform.rotozoom(img, 0, scale)
         except Exception:
             self.sprite_img = None
-
+    
     def generate_drops(self):
         """Generate potential item drops."""
         drop_count = random.randint(1, 3)
@@ -1885,14 +1885,14 @@ class Enemy:
             engine_size = screen_size * 0.4
             engine_color = (255, 150, 0)
             pygame.draw.circle(surface, engine_color, engine_pos.astype(int), int(engine_size))
-        # Draw health bar if damaged
-        if self.health < self.max_health:
-            bar_width = screen_size * 2
-            bar_height = 4
-            bar_pos = (int(screen_pos[0] - bar_width/2), int(screen_pos[1] - ship_length))
-            pygame.draw.rect(surface, (255, 0, 0), (bar_pos[0], bar_pos[1], bar_width, bar_height))
-            health_width = int(bar_width * (self.health / self.max_health))
-            pygame.draw.rect(surface, (0, 255, 0), (bar_pos[0], bar_pos[1], health_width, bar_height))
+            # Draw health bar if damaged
+            if self.health < self.max_health:
+                bar_width = screen_size * 2
+                bar_height = 4
+                bar_pos = (int(screen_pos[0] - bar_width/2), int(screen_pos[1] - ship_length))
+                pygame.draw.rect(surface, (255, 0, 0), (bar_pos[0], bar_pos[1], bar_width, bar_height))
+                health_width = int(bar_width * (self.health / self.max_health))
+                pygame.draw.rect(surface, (0, 255, 0), (bar_pos[0], bar_pos[1], health_width, bar_height))
 
 class Collectible:
     """Collectible items that benefit the player."""
@@ -2074,7 +2074,7 @@ class UI:
         self.showing_missions = False
         self.target_info = None
     
-    def draw_hud(self, surface, rocket):
+    def draw_hud(self, surface, rocket, game):
         """Draw the heads-up display."""
         # Draw fuel bar
         fuel_width = 150
@@ -2141,14 +2141,18 @@ class UI:
         credits_text = self.font.render(f"Credits: {rocket.credits}", True, (255, 255, 255))
         surface.blit(credits_text, (10, 85))
         
+        # Draw items collected counter
+        items_text = self.font.render(f"Items Collected: {len(game.collected_items)}/3", True, (255, 255, 255))
+        surface.blit(items_text, (10, 115))
+        
         # Draw speed
         speed = np.linalg.norm(rocket.velocity)
         speed_text = self.font.render(f"Speed: {int(speed)}", True, (255, 255, 255))
-        surface.blit(speed_text, (10, 115))
+        surface.blit(speed_text, (10, 145))
         
         # Draw current mission if available
         if rocket.current_mission:
-            mission_y = 145
+            mission_y = 175
             mission_title = self.font.render("CURRENT MISSION:", True, (255, 200, 0))
             surface.blit(mission_title, (10, mission_y))
             
@@ -2170,7 +2174,7 @@ class UI:
         
         # Draw takeoff instructions if landed on planet
         if rocket.landed_on_planet:
-            takeoff_y = 220
+            takeoff_y = 250
             takeoff_title = self.font.render("LANDED ON PLANET", True, (255, 255, 0))
             surface.blit(takeoff_title, (10, takeoff_y))
             
@@ -2437,7 +2441,7 @@ class UI:
         player_text = self.small_font.render("YOU", True, (0, 255, 0))
         surface.blit(player_text, (self.screen_width/2 - player_text.get_width()/2, self.screen_height/2 + 10))
     
-    def draw_inventory_screen(self, surface, rocket):
+    def draw_inventory_screen(self, surface, rocket, game):
         """Draw inventory screen when requested."""
         if not self.showing_inventory:
             return
@@ -2500,16 +2504,15 @@ class UI:
         items_title = self.font.render("COLLECTED ITEMS", True, (255, 200, 0))
         surface.blit(items_title, (items_x + 10, items_y + 10))
         
-        if not rocket.collected_items:
+        if not game.collected_items:
             no_items = self.font.render("No items collected", True, (150, 150, 150))
             surface.blit(no_items, (items_x + 20, items_y + 50))
         else:
-            for i, item in enumerate(rocket.collected_items[:10]):  # Show up to 10 items
-                item_name = item.type if hasattr(item, "type") else "Unknown Item"
-                item_text = self.font.render(f"• {item_name}", True, (200, 200, 200))
+            for i, item in enumerate(list(game.collected_items)[:10]):
+                item_text = self.font.render(f"• {item}", True, (200, 200, 200))
                 surface.blit(item_text, (items_x + 20, items_y + 50 + i * 25))
     
-    def draw_missions_screen(self, surface, rocket):
+    def draw_missions_screen(self, surface, rocket, game):
         """Draw missions screen when requested."""
         if not self.showing_missions:
             return
@@ -2639,6 +2642,7 @@ class Game:
         self.last_time = pygame.time.get_ticks()
         self.scene = "planet_surface"  # Start on planet surface
         self.planet_surface_scene = None
+        self.stronghold_scene = None
         self.scene_transition = None
         self.fade_alpha = 0
         self.fade_direction = 0
@@ -2647,6 +2651,7 @@ class Game:
         self.landing_prompt_planet = None
         self.landing_prompt_active = False
         self.saved_space_state = None  # For saving/restoring space state
+        self.collected_items = set()  # Track collected biome items
         # ... existing code ...
         # Start on planet surface
         start_planet = None
@@ -3154,8 +3159,7 @@ class Game:
         
         # Update mission objectives
         if self.rocket.current_mission:
-            self.rocket.update_mission(dt)
-            
+            # Only process if current_mission is not None
             # Check for "explore" mission objectives
             if self.rocket.current_mission["type"] == "explore":
                 for target in self.rocket.mission_targets:
@@ -3164,7 +3168,6 @@ class Game:
                         if distance < target["radius"]:
                             target["discovered"] = True
                             self.rocket.mission_progress += 1
-            
             # Check for "deliver" mission objectives
             elif self.rocket.current_mission["type"] == "deliver":
                 for target in self.rocket.mission_targets:
@@ -3227,56 +3230,61 @@ class Game:
             self.enemies.append(enemy)
     
     def update(self):
-        """Main update loop."""
-        # Always process events and get key state
-        pygame.event.pump()
-        keys = pygame.key.get_pressed()
-        current_time = pygame.time.get_ticks()
-        frame_time = (current_time - self.last_time) / 1000.0
-        self.last_time = current_time
-        if frame_time > 0.25:
-            frame_time = 0.25
-        self.accumulated_time += frame_time
-        while self.accumulated_time >= self.fixed_time_step:
-            if self.fade_direction != 0:
-                fade_speed = 400 * self.fixed_time_step
-                self.fade_alpha += self.fade_direction * fade_speed
-                if self.fade_direction < 0 and self.fade_alpha <= 0:
-                    self.fade_alpha = 0
-                    self.fade_direction = 0
-                    self.scene_transition = None
-                    if self.scene == "space":
-                        self.camera.set_target(self.rocket)
-                        self.camera.position = self.rocket.position.copy()
-                    elif self.scene == "planet_surface" and self.planet_surface_scene:
-                        pass
-                elif self.fade_direction > 0 and self.fade_alpha >= 255:
-                    self.fade_alpha = 255
-                    if self.scene_transition == "to_space":
-                        self._do_space_scene_switch()
-                    elif self.scene_transition == "to_planet_surface":
-                        self._do_planet_surface_scene_switch()
-            else:
-                if self.scene == "planet_surface" and self.planet_surface_scene:
-                    self.planet_surface_scene.update(self.fixed_time_step, keys)
-                elif self.scene == "space":
-                    self.handle_input()
-                    if not self.paused and not self.game_over:
-                        self.update_physics(self.fixed_time_step)
-                        self.spawn_enemies()
-                        self.rocket.update_trajectory(self.celestial_bodies, self.fixed_time_step)
-                        self.particle_system.update(self.fixed_time_step)
-            self.accumulated_time -= self.fixed_time_step
+        """Main game update loop."""
+        dt = self.clock.tick(self.fps) / 1000.0
+        
+        # Handle fade transitions
+        if self.fade_alpha > 0 or self.fade_direction != 0:
+            self.fade_alpha += 255 * dt * self.fade_direction
+            if self.fade_alpha <= 0:
+                self.fade_alpha = 0
+                if self.scene_transition == "to_space":
+                    self._do_space_scene_switch()
+                elif self.scene_transition == "to_planet_surface":
+                    self._do_planet_surface_scene_switch()
+                elif self.scene_transition == "to_stronghold":
+                    self._do_stronghold_scene_switch()
+            elif self.fade_alpha >= 255:
+                self.fade_alpha = 255
+                if self.scene_transition == "to_space":
+                    self._do_space_scene_switch()
+                elif self.scene_transition == "to_planet_surface":
+                    self._do_planet_surface_scene_switch()
+                elif self.scene_transition == "to_stronghold":
+                    self._do_stronghold_scene_switch()
+        
+        # Handle input
+        self.handle_input()
+        
+        # Update based on current scene
         if self.scene == "space":
+            if not self.paused and not self.game_over:
+                self.update_physics(dt)
+                self.spawn_enemies()
+                self.rocket.update_trajectory(self.celestial_bodies, dt)
+                self.particle_system.update(dt)
             self.camera.update()
+        elif self.scene == "planet_surface" and self.planet_surface_scene:
+            keys = pygame.key.get_pressed()
+            self.planet_surface_scene.update(dt, keys)
+        elif self.scene == "stronghold" and self.stronghold_scene:
+            keys = pygame.key.get_pressed()
+            self.stronghold_scene.update(dt, keys)
+            self.stronghold_scene.update_transition(dt)
+        
+        # Game over if fuel is zero
+        if self.rocket.fuel <= 0:
+            self.game_over = True
         if self.game_over:
             self.running = False
-
+    
     def render(self):
         """Render all game elements."""
         # Only render the active scene
         if self.scene == "planet_surface" and self.planet_surface_scene:
             self.planet_surface_scene.render(self.screen)
+        elif self.scene == "stronghold" and self.stronghold_scene:
+            self.stronghold_scene.draw(self.screen)
         elif self.scene == "space":
             self.screen.fill(CONFIG["background_color"])
             self.background.draw(self.screen, self.camera)
@@ -3314,12 +3322,12 @@ class Game:
                 if distance < render_distance:
                     station.draw(self.screen, self.camera)
             self.particle_system.draw(self.screen, self.camera)
-            self.ui.draw_hud(self.screen, self.rocket)
+            self.ui.draw_hud(self.screen, self.rocket, self)
             self.ui.draw_minimap(self.screen, self.rocket, self.celestial_bodies, self.camera)
             self.ui.draw_target_info(self.screen, self.selected_target)
             self.ui.draw_map_screen(self.screen, self.rocket, self.celestial_bodies, self.camera)
-            self.ui.draw_inventory_screen(self.screen, self.rocket)
-            self.ui.draw_missions_screen(self.screen, self.rocket)
+            self.ui.draw_inventory_screen(self.screen, self.rocket, self)
+            self.ui.draw_missions_screen(self.screen, self.rocket, self)
             if self.landing_prompt and self.landing_prompt_active:
                 font = pygame.font.SysFont(None, 36)
                 prompt_surf = font.render(self.landing_prompt, True, (255, 255, 0))
@@ -3391,6 +3399,8 @@ class Game:
             self.planet_surface_scene = DesertSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
         elif getattr(planet, 'biome_type', None) == 'forest':
             self.planet_surface_scene = ForestSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
+        elif getattr(planet, 'biome_type', None) == 'icy':
+            self.planet_surface_scene = IcySurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
         else:
             self.planet_surface_scene = BiomeSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
         self.scene = "planet_surface"
@@ -3460,7 +3470,17 @@ class Game:
                     "weapon_level": self.rocket.weapon_level,
                     "scanner_level": self.rocket.scanner_level,
                 }
-        self.planet_surface_scene = PlanetSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
+        
+        # Use biome-specific surface scenes
+        if getattr(planet, 'biome_type', None) == 'desert':
+            self.planet_surface_scene = DesertSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
+        elif getattr(planet, 'biome_type', None) == 'forest':
+            self.planet_surface_scene = ForestSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
+        elif getattr(planet, 'biome_type', None) == 'icy':
+            self.planet_surface_scene = IcySurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
+        else:
+            self.planet_surface_scene = BiomeSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
+        
         self.scene = "planet_surface"
         self.camera.set_target(None)
         # Start fade-in
@@ -3468,6 +3488,41 @@ class Game:
         self.fade_alpha = 255
         self.scene_transition = None
         self.next_scene = None
+
+    def start_stronghold_scene(self, planet):
+        """Start a stronghold scene for the given planet."""
+        # Start fade-out transition
+        self.fade_alpha = 0
+        self.fade_direction = 1  # Fade out
+        self.scene_transition = "to_stronghold"
+        self.next_scene = planet
+    
+    def exit_stronghold_scene(self, planet):
+        """Exit stronghold scene and return to planet surface."""
+        # Start fade-out transition
+        self.fade_alpha = 0
+        self.fade_direction = 1  # Fade out
+        self.scene_transition = "to_planet_surface"
+        self.next_scene = (planet, None, False)
+        
+        # Clear stronghold scene
+        self.stronghold_scene = None
+    
+    def _do_stronghold_scene_switch(self):
+        """Switch to stronghold scene after fade-out."""
+        planet = self.next_scene
+        # Only trigger fade-in if returning from reward room
+        if hasattr(self, 'stronghold_fade_in') and self.stronghold_fade_in:
+            self.stronghold_scene = StrongholdScene(self, planet, planet.biome_type)
+            self.scene = "stronghold"
+            self.fade_direction = -1  # Fade in
+            self.fade_alpha = 255
+            self.stronghold_fade_in = False
+        else:
+            self.stronghold_scene = StrongholdScene(self, planet, planet.biome_type)
+            self.scene = "stronghold"
+            self.fade_direction = 0
+            self.fade_alpha = 0
 
     def save_space_state_and_land(self):
         import copy
@@ -3550,6 +3605,21 @@ class Game:
             self.fade_alpha = 255
             self.scene_transition = None
             self.next_scene = None
+
+    def deactivate_biome_portals(self, biome_type):
+        """Deactivate all portals for a specific biome across all planets."""
+        # This will be called when a biome item is collected
+        # The portals will be deactivated when the player returns to any planet surface
+        # since setup_portal() checks if the biome is in collected_items
+        pass
+    
+    def start_stronghold_scene(self, planet):
+        """Start a stronghold scene for the given planet."""
+        # Start fade-out transition
+        self.fade_alpha = 0
+        self.fade_direction = 1  # Fade out
+        self.scene_transition = "to_stronghold"
+        self.next_scene = planet
 
 # --- Modular PlanetSurfaceScene ---
 class PlanetSurfaceScene:
@@ -3647,14 +3717,57 @@ class SurfacePlayer:
         self.jump_power = 350
         self.gravity = 900
         self.color = (100, 255, 100)
+        # --- Sprite and animation ---
+        self.facing_right = True
+        self.idle_img = self._load_idle_sprite()
+        self.sword_draw_frames = self._load_sword_frames("draw")
+        self.sword_swing_frames = self._load_sword_frames("swing")
+        self.anim_timer = 0
+        self.anim_index = 0
+        self.anim_state = "idle"  # idle, draw, swing
+        self.anim_playing = False
+        self.anim_fps = 12
+        self.idle_float_offset = 0
+        self.idle_float_dir = 1
+        self.idle_float_timer = 0
+    def _load_idle_sprite(self):
+        import os
+        try:
+            img = pygame.image.load(os.path.join("Assets", "player", "mainCharStill.png")).convert_alpha()
+            return pygame.transform.scale(img, (self.width * 2, self.height * 2))
+        except Exception:
+            surf = pygame.Surface((self.width * 2, self.height * 2), pygame.SRCALPHA)
+            surf.fill((0, 255, 0, 180))
+            return surf
+    def _load_sword_frames(self, anim_type):
+        import os
+        frames = []
+        swing_dir = os.path.join("Assets", "player", "swing")
+        if not os.path.isdir(swing_dir):
+            return frames
+        files = sorted([f for f in os.listdir(swing_dir) if f.endswith(".png")])
+        # For simplicity, use all frames for both draw and swing
+        for fname in files:
+            try:
+                img = pygame.image.load(os.path.join(swing_dir, fname)).convert_alpha()
+                frames.append(pygame.transform.scale(img, (self.width * 2, self.height * 2)))
+            except Exception:
+                continue
+        return frames
     def update(self, dt, keys):
-        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+        moving = False
+        # Movement
+        if keys[pygame.K_LEFT]:
             self.vx = -self.speed
-        elif keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+            self.facing_right = False
+            moving = True
+        elif keys[pygame.K_RIGHT]:
             self.vx = self.speed
+            self.facing_right = True
+            moving = True
         else:
             self.vx = 0
-        if self.on_ground and (keys[pygame.K_UP] or keys[pygame.K_w] or keys[pygame.K_SPACE]):
+        if self.on_ground and keys[pygame.K_UP]:
             self.vy = -self.jump_power
             self.on_ground = False
         self.vy += self.gravity * dt
@@ -3665,9 +3778,53 @@ class SurfacePlayer:
             self.vy = 0
             self.on_ground = True
         self.x = max(0, min(self.scene.width, self.x))
+        # Animation state
+        if self.anim_playing:
+            self.anim_timer += dt
+            if self.anim_timer > 1.0 / self.anim_fps:
+                self.anim_timer = 0
+                self.anim_index += 1
+                if self.anim_state == "draw" and self.anim_index >= len(self.sword_draw_frames):
+                    self.anim_playing = False
+                    self.anim_state = "idle"
+                    self.anim_index = 0
+                elif self.anim_state == "swing" and self.anim_index >= len(self.sword_swing_frames):
+                    self.anim_playing = False
+                    self.anim_state = "idle"
+                    self.anim_index = 0
+        # Idle floating
+        if not moving and not self.anim_playing:
+            self.idle_float_timer += dt
+            self.idle_float_offset = 4 * math.sin(self.idle_float_timer * 2)
+        else:
+            self.idle_float_offset = 0
+        # Sword controls
+        if not self.anim_playing:
+            if keys[pygame.K_f]:
+                self.anim_state = "draw"
+                self.anim_playing = True
+                self.anim_index = 0
+            elif keys[pygame.K_SPACE]:
+                self.anim_state = "swing"
+                self.anim_playing = True
+                self.anim_index = 0
     def render(self, surface):
-        rect = pygame.Rect(self.x - self.width//2, self.y - self.height, self.width, self.height)
-        pygame.draw.rect(surface, self.color, rect)
+        # Pick sprite
+        img = self.idle_img
+        if self.anim_playing:
+            if self.anim_state == "draw" and self.sword_draw_frames:
+                idx = min(self.anim_index, len(self.sword_draw_frames) - 1)
+                img = self.sword_draw_frames[idx]
+            elif self.anim_state == "swing" and self.sword_swing_frames:
+                idx = min(self.anim_index, len(self.sword_swing_frames) - 1)
+                img = self.sword_swing_frames[idx]
+        # Flip if facing left
+        if not self.facing_right:
+            img = pygame.transform.flip(img, True, False)
+        # Draw sprite
+        rect = img.get_rect(center=(self.x, self.y - self.height + self.idle_float_offset))
+        surface.blit(img, rect)
+        # Health and fuel
         font = pygame.font.SysFont(None, 20)
         health = font.render(f"HP: {self.health}", True, (255, 100, 100))
         fuel = font.render(f"Fuel: {int(self.fuel)}", True, (100, 255, 255))
@@ -3697,18 +3854,66 @@ class BiomeSurfaceScene:
         self.dust_storm_timer = 0
         self.dust_storm_active = False
         self.dust_storm_alpha = 0
+        # Rocket bottom image
+        self.rocket_bottom_img = None
+        # Portal system
+        self.portal = None
+        self.portal_prompt = False
+        self.portal_prompt_active = False
+        self.portal_prompt_timer = 0
         self.load_assets()
         self.generate_terrain_and_props()
+        self.setup_portal()
+    
+    def setup_portal(self):
+        """Setup portal for this biome if item not collected."""
+        if self.planet.biome_type not in self.game.collected_items:
+            # Position portal closer to ground and visible on screen
+            portal_x = self.ship_pos[0] + 200
+            portal_y = self.sand_top_y + 20  # Closer to ground level
+            self.portal = Portal([portal_x, portal_y], self.planet.biome_type)
+        else:
+            # Item already collected, no portal
+            self.portal = None
+    
     def load_assets(self):
         # No assets for generic biome
         self.sand_color = (200, 180, 120)
         self.sky_color = (120, 180, 255)
+        # Load rocket bottom image
+        try:
+            self.rocket_bottom_img = pygame.image.load(os.path.join("assets", "rocket", "rocketbottom.png")).convert_alpha()
+        except Exception:
+            # Create fallback if image not found
+            self.rocket_bottom_img = pygame.Surface((100, 200), pygame.SRCALPHA)
+            self.rocket_bottom_img.fill((180, 180, 200, 255))
+    
     def generate_terrain_and_props(self):
         # Simple ground and no props
         self.sand_top_y = int(self.height * 0.6)
         self.sand_height = self.height - self.sand_top_y
+    
     def update(self, dt, keys):
         self.player.update(dt, keys)
+        
+        # --- Portal update and interaction logic ---
+        self.portal_prompt = False
+        self.portal_prompt_active = False
+        
+        if self.portal:
+            self.portal.update(dt)
+            # Check player distance to portal
+            px, py = self.player.x, self.player.y
+            dist = math.hypot(px - self.portal.position[0], py - self.portal.position[1])
+            if dist < 80:  # Show prompt when within 80 pixels
+                self.portal_prompt = True
+                self.portal_prompt_active = True
+                # Enter stronghold on Y key press
+                if keys[pygame.K_y] and not self.transitioning:
+                    self.transitioning = True
+                    self.game.start_stronghold_scene(self.planet)
+        
+        # --- Ship interaction logic ---
         dist = abs(self.player.x - self.ship_pos[0])
         if dist < 60:
             self.enter_ship_prompt = True
@@ -3720,14 +3925,26 @@ class BiomeSurfaceScene:
             self.enter_ship_prompt = False
             self.prompt_active = False
             self.prompt_timer = 0
+        
         if self.prompt_active and keys[pygame.K_e] and not self.transitioning:
             self.transitioning = True
             self.game.exit_planet_surface_scene(self.planet, self.rocket_state)
+    
     def render(self, surface):
         # Simple sky
         surface.fill(self.sky_color)
         # Simple sand ground
         pygame.draw.rect(surface, self.sand_color, (0, self.sand_top_y, self.width, self.sand_height))
+        
+        # Rocket bottom image (behind player, in front of props)
+        if self.rocket_bottom_img:
+            target_height = self.sand_top_y
+            target_width = int(self.rocket_bottom_img.get_width() * (target_height / self.rocket_bottom_img.get_height()))
+            scaled_img = pygame.transform.scale(self.rocket_bottom_img, (target_width, target_height))
+            rocket_x = self.ship_pos[0] - target_width // 2
+            rocket_y = self.sand_top_y - target_height
+            surface.blit(scaled_img, (rocket_x, rocket_y))
+        
         # Landed rocket
         ship_rect = pygame.Rect(self.ship_pos[0] - 40, self.height - 140, 80, 40)
         pygame.draw.rect(surface, (180, 180, 200), ship_rect)
@@ -3736,17 +3953,34 @@ class BiomeSurfaceScene:
             (self.ship_pos[0] + 40, self.height - 140),
             (self.ship_pos[0], self.height - 170)
         ])
+        
+        # --- Portal (drawn behind player) ---
+        if self.portal:
+            self.portal.draw(surface)
+        
         # Player
         self.player.render(surface)
-        # Prompt
+        
+        # Ship prompt
         if self.enter_ship_prompt and self.prompt_active:
             font = pygame.font.SysFont(None, 32)
             prompt = font.render("Enter Rocket? (Press E)", True, (255, 255, 0))
             surface.blit(prompt, (self.ship_pos[0] - prompt.get_width()//2, self.sand_top_y - 60))
+        
+        # --- Portal prompt ---
+        if self.portal and self.portal_prompt and self.portal_prompt_active:
+            font = pygame.font.SysFont(None, 32)
+            prompt = font.render("Enter portal? (Press Y)", True, (255, 255, 0))
+            # Position prompt above the portal
+            prompt_x = self.portal.position[0] - prompt.get_width()//2
+            prompt_y = self.portal.position[1] - 80
+            surface.blit(prompt, (prompt_x, prompt_y))
+        
         # Info
         font = pygame.font.SysFont(None, 28)
         info = font.render(f"{self.planet.name} Surface", True, (200, 200, 255))
         surface.blit(info, (20, 20))
+    
     def get_rocket_state(self):
         state = self.rocket_state.copy()
         state["health"] = self.player.health
@@ -3754,8 +3988,15 @@ class BiomeSurfaceScene:
         state["position"] = self.planet.position.copy()
         return state
 
+    def deactivate_portal(self):
+        """Deactivate portal after item collection."""
+        self.portal = None
+
 class DesertSurfaceScene(BiomeSurfaceScene):
     def load_assets(self):
+        # Call parent to load rocket bottom image
+        super().load_assets()
+        
         self.asset_dir = os.path.join("Assets", "desert")
         try:
             self.sand_img = pygame.image.load(os.path.join(self.asset_dir, "sand.png")).convert_alpha()
@@ -3860,6 +4101,16 @@ class DesertSurfaceScene(BiomeSurfaceScene):
         # --- Props behind player ---
         for prop in self.props_behind:
             surface.blit(prop['img'], prop['rect'])
+        
+        # --- Rocket bottom image (behind player, in front of props) ---
+        if self.rocket_bottom_img:
+            target_height = self.sand_top_y
+            target_width = int(self.rocket_bottom_img.get_width() * (target_height / self.rocket_bottom_img.get_height()))
+            scaled_img = pygame.transform.scale(self.rocket_bottom_img, (target_width, target_height))
+            rocket_x = self.ship_pos[0] - target_width // 2
+            rocket_y = self.sand_top_y - target_height
+            surface.blit(scaled_img, (rocket_x, rocket_y))
+        
         # --- Player (always in front of behind props, behind infront props) ---
         self.player.render(surface)
         # --- Props in front of player ---
@@ -3870,10 +4121,25 @@ class DesertSurfaceScene(BiomeSurfaceScene):
             font = pygame.font.SysFont(None, 32)
             prompt = font.render("Enter Rocket? (Press E)", True, (255, 255, 0))
             surface.blit(prompt, (self.ship_pos[0] - prompt.get_width()//2, self.sand_top_y - 60))
+        # --- Portal ---
+        if self.portal:
+            self.portal.draw(surface)
+        
+        # --- Portal prompt ---
+        if self.portal_prompt and self.portal_prompt_active:
+            font = pygame.font.SysFont(None, 32)
+            prompt = font.render("Enter portal? (Press Y)", True, (255, 255, 0))
+            surface.blit(prompt, (self.portal.position[0] - prompt.get_width()//2, self.portal.position[1] - 80))
+        
         # --- Info ---
         font = pygame.font.SysFont(None, 28)
         info = font.render(f"{self.planet.name} Surface (Desert)", True, (200, 200, 255))
         surface.blit(info, (20, 20))
+        
+        # --- Items collected counter ---
+        items_text = font.render(f"Items Collected: {len(self.game.collected_items)}/3", True, (255, 255, 255))
+        surface.blit(items_text, (20, 50))
+        
         # --- Dust storm overlay ---
         if self.dust_storm_alpha > 0:
             overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
@@ -3882,6 +4148,9 @@ class DesertSurfaceScene(BiomeSurfaceScene):
 
 class ForestSurfaceScene(BiomeSurfaceScene):
     def load_assets(self):
+        # Call parent to load rocket bottom image
+        super().load_assets()
+        
         self.asset_dir = os.path.join("assets", "forest")
         # Use 'foor1.png' as the ground (assume typo for 'floor1.png')
         try:
@@ -3957,6 +4226,16 @@ class ForestSurfaceScene(BiomeSurfaceScene):
         # --- Props behind player ---
         for prop in self.props_behind:
             surface.blit(prop['img'], prop['rect'])
+        
+        # --- Rocket bottom image (behind player, in front of props) ---
+        if self.rocket_bottom_img:
+            target_height = self.sand_top_y
+            target_width = int(self.rocket_bottom_img.get_width() * (target_height / self.rocket_bottom_img.get_height()))
+            scaled_img = pygame.transform.scale(self.rocket_bottom_img, (target_width, target_height))
+            rocket_x = self.ship_pos[0] - target_width // 2
+            rocket_y = self.sand_top_y - target_height
+            surface.blit(scaled_img, (rocket_x, rocket_y))
+        
         # --- Player ---
         self.player.render(surface)
         # --- Props in front of player ---
@@ -3967,10 +4246,24 @@ class ForestSurfaceScene(BiomeSurfaceScene):
             font = pygame.font.SysFont(None, 32)
             prompt = font.render("Enter Rocket? (Press E)", True, (255, 255, 0))
             surface.blit(prompt, (self.ship_pos[0] - prompt.get_width()//2, self.sand_top_y - 60))
+        # --- Portal ---
+        if self.portal:
+            self.portal.draw(surface)
+        
+        # --- Portal prompt ---
+        if self.portal_prompt and self.portal_prompt_active:
+            font = pygame.font.SysFont(None, 32)
+            prompt = font.render("Enter portal? (Press Y)", True, (255, 255, 0))
+            surface.blit(prompt, (self.portal.position[0] - prompt.get_width()//2, self.portal.position[1] - 80))
+        
         # --- Info ---
         font = pygame.font.SysFont(None, 28)
         info = font.render(f"{self.planet.name} Surface (Forest)", True, (200, 255, 200))
         surface.blit(info, (20, 20))
+        
+        # --- Items collected counter ---
+        items_text = font.render(f"Items Collected: {len(self.game.collected_items)}/3", True, (255, 255, 255))
+        surface.blit(items_text, (20, 50))
     def get_rocket_state(self):
         state = self.rocket_state.copy()
         state["health"] = self.player.health
@@ -3982,6 +4275,538 @@ class ForestSurfaceScene(BiomeSurfaceScene):
 # In start_planet_surface_scene, add:
 # if getattr(planet, 'biome_type', None) == 'forest':
 #     self.planet_surface_scene = ForestSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
+
+class IcySurfaceScene(BiomeSurfaceScene):
+    def load_assets(self):
+        # Call parent to load rocket bottom image
+        super().load_assets()
+        
+        import os
+        self.asset_dir = os.path.join("assets", "icy")
+        # Ground
+        try:
+            self.ice_img = pygame.image.load(os.path.join(self.asset_dir, "ice.png")).convert_alpha()
+        except Exception:
+            self.ice_img = pygame.Surface((100, 100))
+            self.ice_img.fill((180, 220, 255))
+        # Background
+        try:
+            self.bg_img = pygame.image.load(os.path.join(self.asset_dir, "snowyMountains.png")).convert_alpha()
+        except Exception:
+            self.bg_img = pygame.Surface((200, 100))
+            self.bg_img.fill((180, 200, 220))
+        # Props
+        self.prop_imgs = []
+        for name in ["snowman.png", "snowStone1.png", "snowStone2.png", "snowStone3.png"]:
+            try:
+                img = pygame.image.load(os.path.join(self.asset_dir, name)).convert_alpha()
+            except Exception:
+                img = pygame.Surface((32, 48))
+                img.fill((220, 220, 220))
+            self.prop_imgs.append(img)
+    def generate_terrain_and_props(self):
+        self.sand_top_y = int(self.height * 0.6)
+        self.sand_height = self.height - self.sand_top_y
+        # --- Ground tiling ---
+        ground_tile_w = self.ice_img.get_width()
+        ground_scaled = pygame.transform.scale(self.ice_img, (ground_tile_w, self.sand_height))
+        self.ground_tiles = []
+        for i in range((self.width // ground_tile_w) + 3):
+            self.ground_tiles.append({'img': ground_scaled, 'x': i * ground_tile_w, 'y': self.sand_top_y})
+        # --- Background tiling ---
+        bg_h = self.bg_img.get_height()
+        bg_w = self.bg_img.get_width()
+        bg_y = self.sand_top_y - bg_h
+        self.bg_tiles = []
+        for i in range((self.width // bg_w) + 3):
+            self.bg_tiles.append({'img': self.bg_img, 'x': i * bg_w, 'y': bg_y})
+        # --- Sky gradient ---
+        self.sky_gradient = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        for y in range(self.height):
+            t = y / self.height
+            r = int(180 * (1-t) + 220 * t)
+            g = int(200 * (1-t) + 240 * t)
+            b = int(255 * (1-t) + 255 * t)
+            a = 255
+            pygame.draw.line(self.sky_gradient, (r, g, b, a), (0, y), (self.width, y))
+        # --- Prop placement with Z-layering ---
+        self.props_behind = []
+        self.props_infront = []
+        ground_y = self.sand_top_y
+        for i in range(16):
+            img = random.choice(self.prop_imgs)
+            scale = random.uniform(0.7, 1.2)
+            prop_img = pygame.transform.rotozoom(img, 0, scale)
+            if random.random() < 0.5:
+                prop_img = pygame.transform.flip(prop_img, True, False)
+            prop_w, prop_h = prop_img.get_size()
+            x = random.randint(60, self.width - 60)
+            y = ground_y + self.sand_height
+            rect = prop_img.get_rect(midbottom=(x, y))
+            z = random.choices(['behind', 'infront'], weights=[70, 30])[0]
+            if z == 'behind':
+                self.props_behind.append({'img': prop_img, 'rect': rect})
+            else:
+                self.props_infront.append({'img': prop_img, 'rect': rect})
+        # --- Snow particle system ---
+        self.snow_particles = []
+        self.snow_spawn_timer = 0
+    def update(self, dt, keys):
+        self.player.update(dt, keys)
+        # Snow particle logic
+        self.snow_spawn_timer += dt
+        spawn_rate = 0.02  # seconds per flake
+        while self.snow_spawn_timer > spawn_rate:
+            self.snow_spawn_timer -= spawn_rate
+            # Spawn a new snow particle
+            x = random.randint(0, self.width)
+            y = 0
+            speed = random.uniform(40, 100)
+            drift = random.uniform(-20, 20)
+            size = random.randint(2, 5)
+            alpha = random.randint(100, 200)
+            self.snow_particles.append({'x': x, 'y': y, 'speed': speed, 'drift': drift, 'size': size, 'alpha': alpha})
+        # Update snow particles
+        for p in self.snow_particles:
+            p['y'] += p['speed'] * dt
+            p['x'] += p['drift'] * dt
+        self.snow_particles = [p for p in self.snow_particles if p['y'] < self.height + 10]
+        # Ship prompt logic
+        dist = abs(self.player.x - self.ship_pos[0])
+        if dist < 60:
+            self.enter_ship_prompt = True
+            if not self.prompt_active:
+                self.prompt_timer += dt
+                if self.prompt_timer > 0.2:
+                    self.prompt_active = True
+        else:
+            self.enter_ship_prompt = False
+            self.prompt_active = False
+            self.prompt_timer = 0
+        if self.prompt_active and keys[pygame.K_e] and not self.transitioning:
+            self.transitioning = True
+            self.game.exit_planet_surface_scene(self.planet, self.rocket_state)
+    def render(self, surface):
+        # --- Sky gradient (furthest back) ---
+        surface.blit(self.sky_gradient, (0, 0))
+        # --- Mountains background ---
+        for bg in self.bg_tiles:
+            surface.blit(bg['img'], (bg['x'], bg['y']))
+        # --- Props behind player ---
+        for prop in self.props_behind:
+            surface.blit(prop['img'], prop['rect'])
+        # --- Snow particles (behind player, above background/props) ---
+        for p in self.snow_particles:
+            snow_color = (255, 255, 255, p['alpha'])
+            snow_surf = pygame.Surface((p['size']*2, p['size']*2), pygame.SRCALPHA)
+            pygame.draw.circle(snow_surf, snow_color, (p['size'], p['size']), p['size'])
+            surface.blit(snow_surf, (p['x']-p['size'], p['y']-p['size']))
+        
+        # --- Rocket bottom image (behind player, in front of props) ---
+        if self.rocket_bottom_img:
+            target_height = self.sand_top_y
+            target_width = int(self.rocket_bottom_img.get_width() * (target_height / self.rocket_bottom_img.get_height()))
+            scaled_img = pygame.transform.scale(self.rocket_bottom_img, (target_width, target_height))
+            rocket_x = self.ship_pos[0] - target_width // 2
+            rocket_y = self.sand_top_y - target_height
+            surface.blit(scaled_img, (rocket_x, rocket_y))
+        
+        # --- Ground (walkable) ---
+        for tile in self.ground_tiles:
+            surface.blit(tile['img'], (tile['x'], tile['y']))
+        # --- Player ---
+        self.player.render(surface)
+        # --- Props in front of player ---
+        for prop in self.props_infront:
+            surface.blit(prop['img'], prop['rect'])
+        # --- Prompt ---
+        if self.enter_ship_prompt and self.prompt_active:
+            font = pygame.font.SysFont(None, 32)
+            prompt = font.render("Enter Rocket? (Press E)", True, (255, 255, 0))
+            surface.blit(prompt, (self.ship_pos[0] - prompt.get_width()//2, self.sand_top_y - 60))
+        # --- Portal ---
+        if self.portal:
+            self.portal.draw(surface)
+        
+        # --- Portal prompt ---
+        if self.portal_prompt and self.portal_prompt_active:
+            font = pygame.font.SysFont(None, 32)
+            prompt = font.render("Enter portal? (Press Y)", True, (255, 255, 0))
+            surface.blit(prompt, (self.portal.position[0] - prompt.get_width()//2, self.portal.position[1] - 80))
+        
+        # --- Info ---
+        font = pygame.font.SysFont(None, 28)
+        info = font.render(f"{self.planet.name} Surface (Icy)", True, (200, 255, 255))
+        surface.blit(info, (20, 20))
+        
+        # --- Items collected counter ---
+        items_text = font.render(f"Items Collected: {len(self.game.collected_items)}/3", True, (255, 255, 255))
+        surface.blit(items_text, (20, 50))
+    def get_rocket_state(self):
+        state = self.rocket_state.copy()
+        state["health"] = self.player.health
+        state["fuel"] = self.player.fuel
+        state["position"] = self.planet.position.copy()
+        return state
+# Integrate IcySurfaceScene into planet surface logic
+# In start_planet_surface_scene, add:
+# if getattr(planet, 'biome_type', None) == 'icy':
+#     self.planet_surface_scene = IcySurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
+
+class Portal:
+    """Portal object that appears on planet surfaces for stronghold access."""
+    def __init__(self, position, biome_type):
+        self.position = position
+        self.biome_type = biome_type
+        self.animation_timer = 0
+        self.rotation = 0
+        self.scale = 1.0
+        self.scale_direction = 1
+        self.glow_alpha = 128
+        self.glow_direction = 1
+        self.active = True
+        self.pulse_timer = 0
+        self.energy_particles = []
+        # Smaller base sprite (40x40)
+        self.sprite = pygame.Surface((40, 40), pygame.SRCALPHA)
+        pygame.draw.circle(self.sprite, (150, 100, 255, 200), (20, 20), 18)
+        pygame.draw.circle(self.sprite, (100, 50, 200, 255), (20, 20), 12)
+        pygame.draw.circle(self.sprite, (200, 150, 255, 255), (20, 20), 7)
+        for i in range(8):
+            angle = i * (2 * math.pi / 8)
+            start_x = 20 + math.cos(angle) * 8
+            start_y = 20 + math.sin(angle) * 8
+            end_x = 20 + math.cos(angle) * 15
+            end_y = 20 + math.sin(angle) * 15
+            pygame.draw.line(self.sprite, (255, 255, 255, 180), (start_x, start_y), (end_x, end_y), 2)
+    def update(self, dt):
+        if not self.active:
+            return
+        self.animation_timer += dt
+        self.pulse_timer += dt
+        self.rotation += 60 * dt
+        self.scale += 0.8 * dt * self.scale_direction
+        if self.scale >= 1.2:
+            self.scale_direction = -1
+        elif self.scale <= 0.8:
+            self.scale_direction = 1
+        self.glow_alpha += 80 * dt * self.glow_direction
+        if self.glow_alpha >= 220:
+            self.glow_direction = -1
+        elif self.glow_alpha <= 60:
+            self.glow_direction = 1
+        # More particles
+        for _ in range(2):
+            if random.random() < 0.3:
+                angle = random.uniform(0, 2 * math.pi)
+                speed = random.uniform(10, 20)
+                particle = {
+                    'x': self.position[0] + math.cos(angle) * 15,
+                    'y': self.position[1] + math.sin(angle) * 15,
+                    'vx': math.cos(angle) * speed,
+                    'vy': math.sin(angle) * speed,
+                    'life': 1.0,
+                    'max_life': 1.0,
+                    'size': random.uniform(1, 2.5)
+                }
+                self.energy_particles.append(particle)
+        for particle in self.energy_particles[:]:
+            particle['x'] += particle['vx'] * dt
+            particle['y'] += particle['vy'] * dt
+            particle['life'] -= dt
+            if particle['life'] <= 0:
+                self.energy_particles.remove(particle)
+    def draw(self, surface, camera=None):
+        if not self.active:
+            return
+        if camera:
+            screen_pos = camera.world_to_screen(self.position)
+        else:
+            screen_pos = self.position
+        for particle in self.energy_particles:
+            alpha = int(255 * (particle['life'] / particle['max_life']))
+            color = (200, 150, 255, alpha)
+            particle_surface = pygame.Surface((particle['size'] * 2, particle['size'] * 2), pygame.SRCALPHA)
+            pygame.draw.circle(particle_surface, color, (particle['size'], particle['size']), particle['size'])
+            surface.blit(particle_surface, (particle['x'] - particle['size'], particle['y'] - particle['size']))
+        # Outer glow
+        glow_radius = int(28 * self.scale)
+        glow_surface = pygame.Surface((glow_radius * 2, glow_radius * 2), pygame.SRCALPHA)
+        glow_color = (150, 100, 255, int(self.glow_alpha * 0.5))
+        pygame.draw.circle(glow_surface, glow_color, (glow_radius, glow_radius), glow_radius)
+        surface.blit(glow_surface, (screen_pos[0] - glow_radius, screen_pos[1] - glow_radius))
+        # Inner glow
+        inner_glow_radius = int(22 * self.scale)
+        inner_glow_surface = pygame.Surface((inner_glow_radius * 2, inner_glow_radius * 2), pygame.SRCALPHA)
+        inner_glow_color = (200, 150, 255, int(self.glow_alpha * 0.8))
+        pygame.draw.circle(inner_glow_surface, inner_glow_color, (inner_glow_radius, inner_glow_radius), inner_glow_radius)
+        surface.blit(inner_glow_surface, (screen_pos[0] - inner_glow_radius, screen_pos[1] - inner_glow_radius))
+        # Portal sprite
+        scaled_sprite = pygame.transform.rotozoom(self.sprite, self.rotation, self.scale)
+        sprite_rect = scaled_sprite.get_rect(center=screen_pos)
+        surface.blit(scaled_sprite, sprite_rect)
+        # Pulsing ring
+        pulse_scale = 1.0 + 0.3 * math.sin(self.pulse_timer * 8)
+        pulse_radius = int(20 * pulse_scale)
+        pulse_surface = pygame.Surface((pulse_radius * 2, pulse_radius * 2), pygame.SRCALPHA)
+        pulse_color = (255, 255, 255, int(100 * (1 - pulse_scale + 1)))
+        pygame.draw.circle(pulse_surface, pulse_color, (pulse_radius, pulse_radius), pulse_radius, 2)
+        surface.blit(pulse_surface, (screen_pos[0] - pulse_radius, screen_pos[1] - pulse_radius))
+
+class StrongholdScene:
+    """Stronghold puzzle scene with directional door navigation."""
+    def __init__(self, game, planet, biome_type):
+        self.game = game
+        self.planet = planet
+        self.biome_type = biome_type
+        self.width = self.game.screen_width
+        self.height = self.game.screen_height
+        self.transitioning = False
+        # Only fade in if returning from reward room
+        self.fade_alpha = 0
+        self.fade_direction = 0
+        # Only reset player_pos if not returning from fade-in
+        if not hasattr(self.game, 'stronghold_player_pos') or self.game.stronghold_player_pos is None:
+            self.player_pos = [self.width // 2, self.height // 2]
+        else:
+            self.player_pos = list(self.game.stronghold_player_pos)
+            self.game.stronghold_player_pos = None
+        self.player_speed = 180  # pixels per second
+        self.player_sprite = None
+        self.load_player_sprite()
+        self.current_room = "puzzle"
+        self.door_sequence = self.generate_door_sequence()
+        self.current_step = 0
+        self.sequence_complete = False
+        self.dialog_timer = 0
+        self.show_dialog = True
+        self.dialog_duration = 3.0
+        self.dialog_sprite = None
+        self.load_dialog_sprite()
+        self.room_sprite = None
+        self.table_sprite = None
+        self.rock_sprite = None
+        self.item_sprite = None
+        self.load_biome_assets()
+        self.reward_collected = False
+        self.reward_timer = 0
+        w, h = self.width, self.height
+        door_w, door_h = 100, 50
+        self.door_boundaries = {
+            "t": pygame.Rect(w//2 - door_w//2, 50, door_w, door_h),
+            "l": pygame.Rect(50, h//2 - door_h, door_h, 100),
+            "r": pygame.Rect(w-50-door_h, h//2 - door_h, door_h, 100),
+            "b": pygame.Rect(w//2 - door_w//2, h-50-door_h, door_w, door_h)
+        }
+        self.last_keys = None
+        self.fade_out_on_reward = False
+        self.fade_in_on_return = False
+        self.fade_timer = 0
+        self.last_door = None  # Track last door entered to prevent multiple triggers
+        # Only fade in if requested by Game (after reward)
+        if hasattr(self.game, 'stronghold_fade_in') and self.game.stronghold_fade_in:
+            self.fade_alpha = 255
+            self.fade_in_on_return = True
+            self.fade_timer = 0
+            self.game.stronghold_fade_in = False
+    def load_biome_assets(self):
+        # Map biome types to correct folders and handle "ice" vs "icy"
+        biome_folder = {
+            "desert": "desert_st",
+            "forest": "forest_st", 
+            "icy": "icy_st",
+            "ice": "icy_st"  # Handle both "ice" and "icy" biome types
+        }.get(self.biome_type, "desert_st")
+        
+        # Determine correct asset names based on biome
+        if self.biome_type in ["icy", "ice"]:
+            room_name = "snowyRoom.png"
+            table_name = "SnowyRoomItemTable.png"
+            rock_name = "snowyRoomRock.png"
+            item_name = "snowyItem.png"
+        else:
+            room_name = f"{self.biome_type}Room.png"
+            table_name = f"{self.biome_type}RoomItemTable.png"
+            rock_name = f"{self.biome_type}RoomRock.png"
+            item_name = f"{self.biome_type}Item.png"
+        
+        try:
+            self.room_sprite = pygame.image.load(os.path.join("assets", "stronghold", biome_folder, room_name)).convert_alpha()
+            self.room_sprite = pygame.transform.scale(self.room_sprite, (self.width, self.height))
+        except Exception as e:
+            print(f"[StrongholdScene] Failed to load room background: {e}")
+            self.room_sprite = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            self.room_sprite.fill((60, 60, 60))
+        try:
+            self.table_sprite = pygame.image.load(os.path.join("assets", "stronghold", biome_folder, table_name)).convert_alpha()
+            self.table_sprite = pygame.transform.scale(self.table_sprite, (120, 80))
+        except Exception as e:
+            print(f"[StrongholdScene] Failed to load table: {e}")
+            self.table_sprite = pygame.Surface((120, 80), pygame.SRCALPHA)
+            self.table_sprite.fill((150, 150, 150))
+        try:
+            self.rock_sprite = pygame.image.load(os.path.join("assets", "stronghold", biome_folder, rock_name)).convert_alpha()
+            self.rock_sprite = pygame.transform.scale(self.rock_sprite, (60, 60))
+        except Exception as e:
+            print(f"[StrongholdScene] Failed to load rock: {e}")
+            self.rock_sprite = pygame.Surface((60, 60), pygame.SRCALPHA)
+            self.rock_sprite.fill((100, 100, 100))
+        try:
+            self.item_sprite = pygame.image.load(os.path.join("assets", "stronghold", biome_folder, item_name)).convert_alpha()
+            self.item_sprite = pygame.transform.scale(self.item_sprite, (48, 48))
+        except Exception as e:
+            print(f"[StrongholdScene] Failed to load item: {e}")
+            self.item_sprite = pygame.Surface((48, 48), pygame.SRCALPHA)
+            self.item_sprite.fill((255, 255, 0))
+    def generate_door_sequence(self):
+        directions = ["t", "l", "r", "b"]
+        return random.sample(directions, 4)
+    def update(self, dt, keys):
+        if self.show_dialog:
+            self.dialog_timer += dt
+            if self.dialog_timer >= self.dialog_duration:
+                self.show_dialog = False
+        # Only process movement if not transitioning or fading
+        if not self.transitioning and not self.fade_out_on_reward:
+            self.handle_player_movement(dt, keys)
+            if self.current_room == "puzzle":
+                self.check_door_interactions()
+        if self.current_room == "reward" and not self.fade_out_on_reward:
+            self.check_reward_collection()
+        if self.fade_out_on_reward:
+            self.fade_timer += dt
+            self.fade_alpha = min(255, int(255 * (self.fade_timer / 0.7)))
+            if self.fade_alpha >= 255:
+                self.fade_out_on_reward = False
+                self.fade_in_on_return = True
+                self.fade_timer = 0
+                # Save player position for fade-in
+                self.game.stronghold_player_pos = list(self.player_pos)
+                self.game.stronghold_fade_in = True
+                self.game.exit_stronghold_scene(self.planet)
+        if self.fade_in_on_return:
+            self.fade_timer += dt
+            self.fade_alpha = max(0, 255 - int(255 * (self.fade_timer / 0.7)))
+            if self.fade_alpha <= 0:
+                self.fade_in_on_return = False
+                self.fade_timer = 0
+    def handle_player_movement(self, dt, keys):
+        dx, dy = 0, 0
+        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+            dx -= 1
+        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+            dx += 1
+        if keys[pygame.K_UP] or keys[pygame.K_w]:
+            dy -= 1
+        if keys[pygame.K_DOWN] or keys[pygame.K_s]:
+            dy += 1
+        if dx != 0 or dy != 0:
+            norm = (dx ** 2 + dy ** 2) ** 0.5
+            if norm > 0:
+                dx /= norm
+                dy /= norm
+            self.player_pos[0] += dx * self.player_speed * dt
+            self.player_pos[1] += dy * self.player_speed * dt
+            self.player_pos[0] = max(32, min(self.width - 32, self.player_pos[0]))
+            self.player_pos[1] = max(32, min(self.height - 32, self.player_pos[1]))
+    def check_door_interactions(self):
+        player_rect = pygame.Rect(self.player_pos[0] - 24, self.player_pos[1] - 24, 48, 48)
+        for direction, boundary in self.door_boundaries.items():
+            if player_rect.colliderect(boundary):
+                # Only trigger if not already in this door and not just after a reset
+                if self.last_door != direction:
+                    self.enter_door(direction)
+                    self.last_door = direction
+                return
+        self.last_door = None  # Reset if not in any door
+    def enter_door(self, direction):
+        if self.door_sequence and direction == self.door_sequence[self.current_step]:
+            self.current_step += 1
+            self.player_pos = [self.width // 2, self.height // 2]
+            if self.current_step >= len(self.door_sequence):
+                self.current_room = "reward"
+                self.sequence_complete = True
+                self.player_pos = [self.width // 2, self.height // 2]
+        else:
+            # Only reset on mistake, and require player to leave door zone before another check
+            if self.last_door is not None:
+                self.current_step = 0
+                self.show_dialog = True
+                self.dialog_timer = 0
+                self.player_pos = [self.width // 2, self.height // 2]
+                self.last_door = None
+    def check_reward_collection(self):
+        if self.reward_collected:
+            return
+        item_rect = pygame.Rect(self.width//2-24, self.height//2-24, 48, 48)
+        player_rect = pygame.Rect(self.player_pos[0] - 24, self.player_pos[1] - 24, 48, 48)
+        if player_rect.colliderect(item_rect):
+            self.collect_reward()
+    def collect_reward(self):
+        self.reward_collected = True
+        self.game.collected_items.add(self.biome_type)
+        self.game.deactivate_biome_portals(self.biome_type)
+        self.fade_out_on_reward = True
+        self.fade_timer = 0
+        self.fade_alpha = 0
+    def update_transition(self, dt):
+        pass
+    def draw(self, surface):
+        surface.blit(self.room_sprite, (0, 0))
+        if self.current_room == "reward":
+            table_x = self.width//4 - 60
+            table_y = self.height//2 - 40
+            surface.blit(self.table_sprite, (table_x, table_y))
+            rock_x = self.width*3//4 - 30
+            rock_y = self.height//2 - 30
+            surface.blit(self.rock_sprite, (rock_x, rock_y))
+            if not self.reward_collected:
+                item_x = self.width//2 - 24
+                item_y = self.height//2 - 24
+                surface.blit(self.item_sprite, (item_x, item_y))
+        if self.player_sprite:
+            player_rect = self.player_sprite.get_rect(center=self.player_pos)
+            surface.blit(self.player_sprite, player_rect)
+        if self.show_dialog and self.current_room == "puzzle":
+            self.draw_dialog(surface)
+        if self.fade_alpha > 0:
+            fade_surface = pygame.Surface((self.width, self.height))
+            fade_surface.set_alpha(self.fade_alpha)
+            fade_surface.fill((0, 0, 0))
+            surface.blit(fade_surface, (0, 0))
+    def draw_dialog(self, surface):
+        dialog_x = 20
+        dialog_y = self.height - 120
+        surface.blit(self.dialog_sprite, (dialog_x, dialog_y))
+        font = pygame.font.SysFont(None, 18, bold=True)
+        dir_map = {"t": "T", "l": "L", "r": "R", "b": "B"}
+        seq_str = " → ".join([dir_map[d] for d in self.door_sequence]) if self.door_sequence else ""
+        text_surface = font.render(f"Sequence: {seq_str}", True, (255, 255, 255))
+        text_rect = text_surface.get_rect()
+        text_rect.topleft = (dialog_x + 18, dialog_y + 18)
+        surface.blit(text_surface, text_rect)
+        instruction_font = pygame.font.SysFont(None, 16)
+        instruction_text = "Use arrow keys to move through doors"
+        instruction_surface = instruction_font.render(instruction_text, True, (220, 220, 220))
+        instruction_rect = instruction_surface.get_rect()
+        instruction_rect.topleft = (dialog_x + 18, dialog_y + 48)
+        surface.blit(instruction_surface, instruction_rect)
+    def load_player_sprite(self):
+        try:
+            self.player_sprite = pygame.image.load(os.path.join("assets", "stronghold", "mainCharTopView.png")).convert_alpha()
+            self.player_sprite = pygame.transform.scale(self.player_sprite, (48, 48))
+        except Exception:
+            self.player_sprite = pygame.Surface((48, 48), pygame.SRCALPHA)
+            self.player_sprite.fill((0, 255, 0))
+    def load_dialog_sprite(self):
+        try:
+            self.dialog_sprite = pygame.image.load(os.path.join("assets", "dialog", "mainCharDialogBox.png")).convert_alpha()
+            self.dialog_sprite = pygame.transform.scale(self.dialog_sprite, (400, 120))
+        except Exception:
+            self.dialog_sprite = pygame.Surface((400, 120), pygame.SRCALPHA)
+            self.dialog_sprite.fill((50, 50, 50, 200))
+
+# ... existing code ...
 
 # Start the game
 if __name__ == "__main__":
