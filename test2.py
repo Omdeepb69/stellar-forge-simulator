@@ -8,6 +8,301 @@ from sklearn.preprocessing import PolynomialFeatures
 import pygame.freetype
 import hashlib
 import os
+import subprocess
+import threading
+import time
+
+class CutsceneManager:
+    """Manages cutscene playback and transitions."""
+    def __init__(self, screen):
+        self.screen = screen
+        self.playing = False
+        self.video_process = None
+        self.fade_alpha = 0
+        self.fade_direction = 0
+        self.fade_timer = 0
+        self.cutscene_complete = False
+        self.boss_scene_ready = False
+        
+    def play_cutscene(self, video_path):
+        """Play a video cutscene using system video player."""
+        if not os.path.exists(video_path):
+            print(f"[CutsceneManager] Video file not found: {video_path}")
+            self.cutscene_complete = True
+            return
+            
+        self.playing = True
+        self.cutscene_complete = False
+        self.fade_alpha = 0
+        self.fade_direction = 1  # Fade in
+        
+        # Start video in a separate thread
+        def play_video():
+            try:
+                # Use system default video player
+                if sys.platform == "win32":
+                    os.startfile(video_path)
+                elif sys.platform == "darwin":  # macOS
+                    subprocess.run(["open", video_path])
+                else:  # Linux
+                    subprocess.run(["xdg-open", video_path])
+                    
+                # Wait for video to finish (estimate 10 seconds for colfin.mp4)
+                time.sleep(10)
+                self.cutscene_complete = True
+                self.playing = False
+            except Exception as e:
+                print(f"[CutsceneManager] Error playing video: {e}")
+                self.cutscene_complete = True
+                self.playing = False
+        
+        video_thread = threading.Thread(target=play_video)
+        video_thread.daemon = True
+        video_thread.start()
+    
+    def update(self, dt):
+        """Update cutscene state and transitions."""
+        if self.playing:
+            # Handle fade transitions
+            if self.fade_direction != 0:
+                self.fade_timer += dt
+                if self.fade_direction == 1:  # Fade in
+                    self.fade_alpha = min(255, int(255 * (self.fade_timer / 1.0)))
+                    if self.fade_alpha >= 255:
+                        self.fade_direction = 0
+                        self.fade_timer = 0
+                elif self.fade_direction == -1:  # Fade out
+                    self.fade_alpha = max(0, 255 - int(255 * (self.fade_timer / 1.0)))
+                    if self.fade_alpha <= 0:
+                        self.fade_direction = 0
+                        self.fade_timer = 0
+                        self.boss_scene_ready = True
+            
+            # Check if cutscene is complete
+            if self.cutscene_complete and self.fade_direction == 0:
+                self.fade_direction = -1  # Start fade out
+                self.fade_timer = 0
+    
+    def draw(self, surface):
+        """Draw cutscene overlay and fade effects."""
+        if self.playing:
+            # Draw black overlay
+            overlay = pygame.Surface(surface.get_size())
+            overlay.fill((0, 0, 0))
+            overlay.set_alpha(self.fade_alpha)
+            surface.blit(overlay, (0, 0))
+            
+            # Draw cutscene text
+            if self.fade_alpha > 0:
+                font = pygame.font.SysFont(None, 48)
+                text = font.render("Playing Cutscene...", True, (255, 255, 255))
+                text_rect = text.get_rect(center=(surface.get_width()//2, surface.get_height()//2))
+                surface.blit(text, text_rect)
+
+class FinalBossScene:
+    """Final boss battle scene after collecting all 3 items."""
+    def __init__(self, game):
+        self.game = game
+        self.width = game.screen_width
+        self.height = game.screen_height
+        self.boss_health = 100
+        self.boss_max_health = 100
+        self.player_health = game.rocket.health
+        self.player_max_health = game.rocket.max_health
+        self.boss_position = [self.width // 2, self.height // 2]
+        self.player_position = [100, self.height // 2]
+        self.boss_bullets = []
+        self.player_bullets = []
+        self.boss_timer = 0
+        self.attack_pattern = 0
+        self.boss_defeated = False
+        self.victory_timer = 0
+        self.fade_alpha = 0
+        self.fade_direction = 1  # Fade in
+        
+    def update(self, dt, keys):
+        """Update boss battle logic."""
+        if self.boss_defeated:
+            self.victory_timer += dt
+            if self.victory_timer > 3.0:  # Show victory for 3 seconds
+                self.fade_direction = -1  # Fade out
+                self.fade_alpha = max(0, 255 - int(255 * (self.victory_timer - 3.0)))
+                if self.fade_alpha <= 0:
+                    # Game completed!
+                    print("[FinalBossScene] Congratulations! You have completed the game!")
+                    self.game.running = False
+            return
+            
+        # Player movement
+        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+            self.player_position[0] -= 200 * dt
+        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+            self.player_position[0] += 200 * dt
+        if keys[pygame.K_UP] or keys[pygame.K_w]:
+            self.player_position[1] -= 200 * dt
+        if keys[pygame.K_DOWN] or keys[pygame.K_s]:
+            self.player_position[1] += 200 * dt
+            
+        # Keep player on screen
+        self.player_position[0] = max(50, min(self.width - 50, self.player_position[0]))
+        self.player_position[1] = max(50, min(self.height - 50, self.player_position[1]))
+        
+        # Player shooting
+        if keys[pygame.K_SPACE]:
+            self.player_bullets.append({
+                'pos': self.player_position.copy(),
+                'vel': [400, 0],
+                'timer': 0
+            })
+        
+        # Update player bullets
+        for bullet in self.player_bullets[:]:
+            bullet['pos'][0] += bullet['vel'][0] * dt
+            bullet['timer'] += dt
+            if bullet['timer'] > 2.0:
+                self.player_bullets.remove(bullet)
+            elif bullet['pos'][0] > self.width:
+                self.player_bullets.remove(bullet)
+            else:
+                # Check if bullet hits boss
+                dist = math.hypot(bullet['pos'][0] - self.boss_position[0], 
+                                bullet['pos'][1] - self.boss_position[1])
+                if dist < 60:  # Boss hit radius
+                    self.boss_health -= 10
+                    self.player_bullets.remove(bullet)
+                    if self.boss_health <= 0:
+                        self.boss_defeated = True
+                        self.victory_timer = 0
+        
+        # Boss AI
+        self.boss_timer += dt
+        if self.boss_timer > 2.0:  # Attack every 2 seconds
+            self.boss_timer = 0
+            self.attack_pattern = (self.attack_pattern + 1) % 3
+            
+            if self.attack_pattern == 0:  # Single shot
+                self.boss_bullets.append({
+                    'pos': self.boss_position.copy(),
+                    'vel': [-300, 0],
+                    'timer': 0
+                })
+            elif self.attack_pattern == 1:  # Spread shot
+                for angle in [-30, 0, 30]:
+                    rad = math.radians(angle)
+                    vel_x = -300 * math.cos(rad)
+                    vel_y = -300 * math.sin(rad)
+                    self.boss_bullets.append({
+                        'pos': self.boss_position.copy(),
+                        'vel': [vel_x, vel_y],
+                        'timer': 0
+                    })
+            else:  # Homing shot
+                dx = self.player_position[0] - self.boss_position[0]
+                dy = self.player_position[1] - self.boss_position[1]
+                dist = math.hypot(dx, dy)
+                if dist > 0:
+                    self.boss_bullets.append({
+                        'pos': self.boss_position.copy(),
+                        'vel': [-200 * dx / dist, -200 * dy / dist],
+                        'timer': 0
+                    })
+        
+        # Update boss bullets
+        for bullet in self.boss_bullets[:]:
+            bullet['pos'][0] += bullet['vel'][0] * dt
+            bullet['pos'][1] += bullet['vel'][1] * dt
+            bullet['timer'] += dt
+            if bullet['timer'] > 3.0:
+                self.boss_bullets.remove(bullet)
+            elif (bullet['pos'][0] < 0 or bullet['pos'][0] > self.width or
+                  bullet['pos'][1] < 0 or bullet['pos'][1] > self.height):
+                self.boss_bullets.remove(bullet)
+            else:
+                # Check if bullet hits player
+                dist = math.hypot(bullet['pos'][0] - self.player_position[0], 
+                                bullet['pos'][1] - self.player_position[1])
+                if dist < 30:  # Player hit radius
+                    self.player_health -= 20
+                    self.boss_bullets.remove(bullet)
+                    if self.player_health <= 0:
+                        # Player defeated
+                        print("[FinalBossScene] Game Over - You were defeated by the final boss!")
+                        self.game.running = False
+        
+        # Boss movement (simple pattern)
+        self.boss_position[1] = self.height // 2 + 100 * math.sin(self.boss_timer * 2)
+    
+    def draw(self, surface):
+        """Draw the boss battle scene."""
+        # Background
+        surface.fill((20, 10, 30))  # Dark purple space
+        
+        # Draw stars
+        for i in range(50):
+            x = (i * 37) % self.width
+            y = (i * 73) % self.height
+            brightness = (i * 13) % 255
+            pygame.draw.circle(surface, (brightness, brightness, brightness), (x, y), 1)
+        
+        # Draw boss
+        boss_color = (255, 0, 0) if self.boss_health > 50 else (255, 100, 0)
+        pygame.draw.circle(surface, boss_color, (int(self.boss_position[0]), int(self.boss_position[1])), 60)
+        
+        # Draw player
+        pygame.draw.circle(surface, (0, 255, 0), (int(self.player_position[0]), int(self.player_position[1])), 20)
+        
+        # Draw bullets
+        for bullet in self.player_bullets:
+            pygame.draw.circle(surface, (255, 255, 0), (int(bullet['pos'][0]), int(bullet['pos'][1])), 5)
+        
+        for bullet in self.boss_bullets:
+            pygame.draw.circle(surface, (255, 0, 0), (int(bullet['pos'][0]), int(bullet['pos'][1])), 8)
+        
+        # Draw health bars
+        # Boss health
+        boss_health_width = 200
+        boss_health_height = 20
+        boss_health_x = self.width // 2 - boss_health_width // 2
+        boss_health_y = 50
+        pygame.draw.rect(surface, (100, 100, 100), (boss_health_x, boss_health_y, boss_health_width, boss_health_height))
+        health_percent = self.boss_health / self.boss_max_health
+        pygame.draw.rect(surface, (255, 0, 0), (boss_health_x, boss_health_y, int(boss_health_width * health_percent), boss_health_height))
+        pygame.draw.rect(surface, (255, 255, 255), (boss_health_x, boss_health_y, boss_health_width, boss_health_height), 2)
+        
+        # Player health
+        player_health_width = 200
+        player_health_height = 20
+        player_health_x = 50
+        player_health_y = 50
+        pygame.draw.rect(surface, (100, 100, 100), (player_health_x, player_health_y, player_health_width, player_health_height))
+        health_percent = self.player_health / self.player_max_health
+        pygame.draw.rect(surface, (0, 255, 0), (player_health_x, player_health_y, int(player_health_width * health_percent), player_health_height))
+        pygame.draw.rect(surface, (255, 255, 255), (player_health_x, player_health_y, player_health_width, player_health_height), 2)
+        
+        # Draw UI text
+        font = pygame.font.SysFont(None, 36)
+        boss_text = font.render("FINAL BOSS", True, (255, 255, 255))
+        surface.blit(boss_text, (self.width // 2 - boss_text.get_width() // 2, 20))
+        
+        controls_text = font.render("WASD: Move, SPACE: Shoot", True, (200, 200, 200))
+        surface.blit(controls_text, (20, self.height - 40))
+        
+        # Victory screen
+        if self.boss_defeated:
+            victory_font = pygame.font.SysFont(None, 72)
+            victory_text = victory_font.render("VICTORY!", True, (255, 255, 0))
+            surface.blit(victory_text, (self.width // 2 - victory_text.get_width() // 2, self.height // 2 - 50))
+            
+            subtitle_font = pygame.font.SysFont(None, 36)
+            subtitle_text = subtitle_font.render("You have saved the galaxy!", True, (255, 255, 255))
+            surface.blit(subtitle_text, (self.width // 2 - subtitle_text.get_width() // 2, self.height // 2 + 20))
+        
+        # Fade overlay
+        if self.fade_alpha > 0:
+            fade_overlay = pygame.Surface(surface.get_size())
+            fade_overlay.fill((0, 0, 0))
+            fade_overlay.set_alpha(self.fade_alpha)
+            surface.blit(fade_overlay, (0, 0))
 
 # Configuration Constants
 CONFIG = {
@@ -36,8 +331,8 @@ CONFIG = {
     "asteroid_radius_min": 1,
     "asteroid_radius_max": 4,
     "rocket_mass": 70,  # Reduced mass for faster acceleration
-    "rocket_thrust": 1000,  # Increased thrust for more responsive control
-    "rocket_rotation_speed": 3,
+    "rocket_thrust": 2500,  # Much higher thrust for snappy, satisfying movement
+    "rocket_rotation_speed": 6,  # Faster rotation for more responsive turning
     "rocket_initial_fuel": 1000,
     "fuel_consumption_rate": 0.5,
     "background_color": (5, 5, 15),  # Slightly darker background
@@ -2652,7 +2947,12 @@ class Game:
         self.landing_prompt_active = False
         self.saved_space_state = None  # For saving/restoring space state
         self.collected_items = set()  # Track collected biome items
-        # ... existing code ...
+        
+        # Cutscene and boss scene management
+        self.cutscene_manager = CutsceneManager(self.screen)
+        self.final_boss_scene = None
+        self.cutscene_triggered = False
+        
         # Start on planet surface
         start_planet = None
         for body in self.celestial_bodies:
@@ -2663,7 +2963,6 @@ class Game:
             self.start_planet_surface_scene(start_planet)
         else:
             self.scene = "space"
-        # ... existing code ...
     
     def generate_universe(self):
         """Generate the game universe."""
@@ -3256,6 +3555,21 @@ class Game:
         # Handle input
         self.handle_input()
         
+        # Check for game completion (all 3 items collected)
+        if len(self.collected_items) >= 3 and not self.cutscene_triggered:
+            self.cutscene_triggered = True
+            self.cutscene_manager.play_cutscene("Assets/cutscene/colfin.mp4")
+            print("[Game] All 3 items collected! Starting final cutscene...")
+        
+        # Update cutscene manager
+        self.cutscene_manager.update(dt)
+        
+        # Check if cutscene is complete and boss scene is ready
+        if self.cutscene_triggered and self.cutscene_manager.boss_scene_ready and not self.final_boss_scene:
+            self.final_boss_scene = FinalBossScene(self)
+            self.scene = "final_boss"
+            print("[Game] Cutscene complete! Starting final boss battle...")
+        
         # Update based on current scene
         if self.scene == "space":
             if not self.paused and not self.game_over:
@@ -3270,9 +3584,12 @@ class Game:
         elif self.scene == "stronghold" and self.stronghold_scene:
             keys = pygame.key.get_pressed()
             self.stronghold_scene.update(dt, keys)
+        elif self.scene == "final_boss" and self.final_boss_scene:
+            keys = pygame.key.get_pressed()
+            self.final_boss_scene.update(dt, keys)
         
-        # Game over if fuel is zero
-        if self.rocket.fuel <= 0:
+        # Game over if fuel is zero (but not during cutscene or boss battle)
+        if self.rocket.fuel <= 0 and self.scene not in ["final_boss"]:
             self.game_over = True
         if self.game_over:
             self.running = False
@@ -3284,6 +3601,8 @@ class Game:
             self.planet_surface_scene.render(self.screen)
         elif self.scene == "stronghold" and self.stronghold_scene:
             self.stronghold_scene.draw(self.screen)
+        elif self.scene == "final_boss" and self.final_boss_scene:
+            self.final_boss_scene.draw(self.screen)
         elif self.scene == "space":
             self.screen.fill(CONFIG["background_color"])
             self.background.draw(self.screen, self.camera)
@@ -3336,6 +3655,11 @@ class Game:
                 y = self.screen_height//2 - prompt_surf.get_height()//2
                 self.screen.blit(prompt_bg, (x-20, y-15))
                 self.screen.blit(prompt_surf, (x, y))
+        
+        # Draw cutscene overlay if playing
+        if self.cutscene_manager.playing:
+            self.cutscene_manager.draw(self.screen)
+        
         # Fade overlay
         if self.fade_alpha > 0:
             fade_overlay = pygame.Surface((self.screen_width, self.screen_height), pygame.SRCALPHA)
