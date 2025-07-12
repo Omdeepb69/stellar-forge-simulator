@@ -1361,9 +1361,9 @@ CONFIG = {
     "asteroid_mass_max": 1e2,
     "asteroid_radius_min": 1,
     "asteroid_radius_max": 4,
-    "rocket_mass": 70,  # Reduced mass for faster acceleration
-    "rocket_thrust": 2500,  # Much higher thrust for snappy, satisfying movement
-    "rocket_rotation_speed": 6,  # Faster rotation for more responsive turning
+    "rocket_mass": 40,  # Much lighter mass for incredible acceleration
+    "rocket_thrust": 8000,  # Massive thrust for extremely powerful movement
+    "rocket_rotation_speed": 10,  # Very fast rotation for ultra-responsive turning
     "rocket_initial_fuel": 1000,
     "fuel_consumption_rate": 0.5,
     "background_color": (5, 5, 15),  # Slightly darker background
@@ -6183,25 +6183,13 @@ class StrongholdScene:
 # Start the game
 if __name__ == "__main__":
     print("=== STELLAR FORGE SIMULATOR ===")
-    print("1. Start Normal Game")
-    print("2. Jump to Final Boss Battle (Shortcut)")
-    print("Enter your choice (1 or 2): ", end="")
+    print("Starting game...")
     
     try:
-        choice = input().strip()
-        if choice == "2":
-            print("Starting Final Boss Battle shortcut...")
-            game = Game()
-            game.start_final_boss_battle()
-            game.run()
-        else:
-            print("Starting normal game...")
-            game = Game()
-            game.run()
+        game = Game()
+        game.run()
     except KeyboardInterrupt:
         print("\nGame cancelled.")
     except Exception as e:
         print(f"Error: {e}")
-        print("Starting normal game as fallback...")
-        game = Game()
-        game.run()
+        print("Game terminated due to error.")
