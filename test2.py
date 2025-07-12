@@ -8,7 +8,7 @@ from sklearn.preprocessing import PolynomialFeatures
 import pygame.freetype
 import hashlib
 import os
-import subprocess
+import subprocess 
 import threading
 import time
 
@@ -133,6 +133,12 @@ class FinalBossScene:
         self.player_sword_frame = 0
         self.player_speed = 200
         
+        # Enhanced jump system
+        self.player_velocity_y = 0
+        self.player_jump_force = 350  # Moderate jump force for ~1.5x player height
+        self.player_gravity = 300     # Balanced gravity for natural arc
+        self.player_is_grounded = True
+        
         # Enhanced player animation system
         self.player_anim_state = "idle"  # idle, draw, swing
         self.player_anim_playing = False
@@ -158,15 +164,27 @@ class FinalBossScene:
         self.boss_swing_animation_speed = 0.1
         self.boss_defeated = False
         
+        # Phase 3 transition variables
+        self.boss_landing = False
+        self.boss_landing_timer = 0
+        self.boss_landing_duration = 2.0  # 2 seconds to land
+        self.boss_phase3_start_y = self.height // 2  # Starting Y position for landing
+        self.boss_phase3_ground_y = self.floor_y - 80  # Ground level for boss
+        
         # Combat entities
         self.aliens = []
         self.alien_bullets = []
         self.boss_bullets = []
         self.player_bullets = []
         
+        # Particle effects
+        self.explosion_particles = []
+        
         # Visual effects
         self.fade_alpha = 255
         self.fade_direction = -1  # Start with fade in
+        self.screen_shake_timer = 0
+        self.screen_shake_intensity = 0
         
         # Load all assets and setup environment
         self.load_assets()
@@ -346,15 +364,27 @@ class FinalBossScene:
         elif phase == 2:
             # Phase 2: Final Boss + 10 Alien Minions
             self.spawn_aliens(10)
+            # Boss is stationary and always on-screen
             self.boss_pos = [self.width // 2, self.height // 2]
+            self.boss_position = [self.width // 2, self.height // 2]  # Keep in sync
             self.boss_health = 100
+            self.boss_max_health = 100
+            self.boss_attack_cooldown = 1.5  # Faster attacks than Phase 1
             print("[FinalBossScene] Phase 2: Final Boss + 10 Alien Minions")
             
         elif phase == 3:
-            # Phase 3: Final Boss Sword Duel
-            self.boss_pos = [self.width // 2, self.height // 2]
+            # Phase 3: Final Boss Sword Duel - 1v1 melee battle
+            # Start boss landing animation
+            self.boss_landing = True
+            self.boss_landing_timer = 0
+            self.boss_phase3_start_y = self.boss_position[1]  # Current boss position
             self.boss_health = 50  # Reset boss health for final phase
-            print("[FinalBossScene] Phase 3: Final Boss Sword Duel")
+            self.boss_max_health = 50
+            self.boss_attack_cooldown = 2.0  # Slower attacks for melee combat
+            self.boss_sword_damage = 25  # Boss sword damage
+            print("[FinalBossScene] Phase 3: Final Boss Sword Duel - 1v1 Melee Battle")
+            print("[FinalBossScene] 🗡️ BOSS IS LANDING FOR EPIC SWORD DUEL! 🗡️")
+            print("[FinalBossScene] ⚔️ PREPARE FOR THE ULTIMATE MELEE BATTLE! ⚔️")
     
     def spawn_aliens(self, count):
         """Spawn alien minions."""
@@ -369,7 +399,13 @@ class FinalBossScene:
                 "floating_offset": i * 0.5,
                 "attack_timer": i * 0.5,
                 "attack_cooldown": 2.0 + (i % 3) * 0.5,
-                "floating_speed": 2.0 + (i % 2) * 0.5
+                "floating_speed": 3.0 + (i % 3) * 1.0,  # Faster, more varied movement speeds
+                # Ground attack behavior
+                "ground_attack_timer": random.uniform(3.0, 8.0),  # Random time before first ground attack
+                "ground_attack_cooldown": random.uniform(5.0, 12.0),  # Random cooldown between attacks
+                "is_ground_attacking": False,
+                "ground_attack_duration": 0,
+                "ground_attack_speed": 300  # Speed when diving to ground
             }
             self.aliens.append(alien)
     
@@ -384,10 +420,12 @@ class FinalBossScene:
         # Handle victory state
         if self.boss_defeated:
             self.victory_timer += dt
-            if self.victory_timer > 3.0:
+            # Credits scroll for 15 seconds, then fade out
+            if self.victory_timer > 15.0:
                 self.fade_direction = 1  # Fade out
                 if self.fade_alpha >= 255:
-                    print("[FinalBossScene] Congratulations! You have completed the game!")
+                    print("[FinalBossScene] 🎉 Congratulations! You have completed the game! 🎉")
+                    print("[FinalBossScene] 🏆 You are the ultimate space warrior! 🏆")
                     self.game.running = False
             return
         
@@ -404,10 +442,16 @@ class FinalBossScene:
         # Check phase completion conditions
         if self.current_phase == 1 and len(self.aliens) == 0:
             self.start_phase(2)
-        elif self.current_phase == 2 and self.boss_health <= 0:
+        elif self.current_phase == 2 and len(self.aliens) == 0:  # All aliens killed, not boss
             self.start_phase(3)
-            self.boss_health = 50  # Reset boss health for final phase
         elif self.current_phase == 3 and self.boss_health <= 0:
+            # Boss defeated - create explosion and start victory sequence
+            if not self.boss_defeated:  # Only trigger once
+                self.create_explosion_particles(self.boss_position, particle_count=30)  # Big explosion
+                self.screen_shake_timer = 1.0  # Screen shake
+                self.screen_shake_intensity = 15
+                print("[FinalBossScene] 🎉 BOSS DEFEATED! EPIC VICTORY! 🎉")
+                print("[FinalBossScene] 💥 BOSS EXPLODES INTO PARTICLES! 💥")
             self.boss_defeated = True
             self.victory_timer = 0
         
@@ -423,6 +467,15 @@ class FinalBossScene:
         # Update projectiles
         self.update_projectiles(dt)
         
+        # Update explosion particles
+        self.update_explosion_particles(dt)
+        
+        # Update screen shake
+        if self.screen_shake_timer > 0:
+            self.screen_shake_timer -= dt
+            if self.screen_shake_timer <= 0:
+                self.screen_shake_intensity = 0
+        
         # Check collisions
         self.check_collisions()
     
@@ -431,7 +484,7 @@ class FinalBossScene:
         # Track if player is moving
         moving = False
         
-        # Player movement (Arrow keys only as requested)
+        # Player movement (Arrow keys only as requested) - No flying, only jumping
         if keys[pygame.K_LEFT]:
             self.player_position[0] -= self.player_speed * dt
             self.player_pos[0] = self.player_position[0]  # Keep in sync
@@ -442,20 +495,31 @@ class FinalBossScene:
             self.player_pos[0] = self.player_position[0]  # Keep in sync
             self.player_facing_right = True
             moving = True
-        if keys[pygame.K_UP]:
-            self.player_position[1] -= self.player_speed * dt
-            self.player_pos[1] = self.player_position[1]  # Keep in sync
-            moving = True
-        if keys[pygame.K_DOWN]:
-            self.player_position[1] += self.player_speed * dt
-            self.player_pos[1] = self.player_position[1]  # Keep in sync
-            moving = True
         
-        # Keep player on screen
+        # Enhanced jump system
+        if keys[pygame.K_UP] and self.player_is_grounded:
+            # Jump only when grounded
+            self.player_velocity_y = -self.player_jump_force
+            self.player_is_grounded = False
+            moving = True
+            print("[FinalBossScene] Player jumped! Velocity: {:.1f}".format(self.player_velocity_y))
+        
+        # Apply gravity and update vertical position
+        if not self.player_is_grounded:
+            self.player_velocity_y += self.player_gravity * dt
+            self.player_position[1] += self.player_velocity_y * dt
+            self.player_pos[1] = self.player_position[1]  # Keep in sync
+        
+        # Check if player has landed
+        if self.player_position[1] >= self.floor_y - 60:
+            self.player_position[1] = self.floor_y - 60
+            self.player_pos[1] = self.player_position[1]  # Keep in sync
+            self.player_velocity_y = 0
+            self.player_is_grounded = True
+        
+        # Keep player on screen horizontally
         self.player_position[0] = max(50, min(self.width - 50, self.player_position[0]))
-        self.player_position[1] = max(50, min(self.height - 50, self.player_position[1]))
         self.player_pos[0] = self.player_position[0]  # Keep in sync
-        self.player_pos[1] = self.player_position[1]  # Keep in sync
         
         # Idle floating animation (when not moving and not in combat animation)
         if not moving and not self.player_anim_playing:
@@ -466,12 +530,13 @@ class FinalBossScene:
         
         # Enhanced sword combat system
         if not self.player_anim_playing:  # Only allow new animations when not already playing
-            if keys[pygame.K_f]:  # Draw sword
+            if keys[pygame.K_f]:  # Draw sword (lightsaber)
                 self.player_anim_state = "draw"
                 self.player_anim_playing = True
                 self.player_anim_timer = 0
                 self.player_sword_frame = 0
                 self.player_sword_drawn = True
+                print("[FinalBossScene] Lightsaber activated!")
             
             elif keys[pygame.K_SPACE] and self.player_sword_drawn and self.player_sword_cooldown <= 0:  # Swing sword
                 self.player_anim_state = "swing"
@@ -480,6 +545,7 @@ class FinalBossScene:
                 self.player_sword_frame = 0
                 self.player_sword_cooldown = 0.5
                 self.player_sword_swinging = True
+                print("[FinalBossScene] Sword swing!")
         
         # Update animation system
         if self.player_anim_playing:
@@ -503,11 +569,11 @@ class FinalBossScene:
         """Update boss AI and behavior."""
         # Boss floating animation
         self.boss_floating_offset += dt * 2
-        boss_y = self.height // 2 + 50 * math.sin(self.boss_floating_offset)
         
         if self.current_phase == 2:
-            # Phase 2: Gun boss
-            self.boss_position[1] = boss_y
+            # Phase 2: Gun boss - stationary and always on-screen
+            # Boss stays in center, only slight floating animation
+            self.boss_position[1] = self.height // 2 + 20 * math.sin(self.boss_floating_offset * 0.5)
             self.boss_pos[1] = self.boss_position[1]  # Keep in sync
             self.boss_attack_timer += dt
             
@@ -516,32 +582,51 @@ class FinalBossScene:
                 self.boss_shoot_orb()
                 
         elif self.current_phase == 3:
-            # Phase 3: Sword boss
-            self.boss_position[1] = boss_y
-            self.boss_pos[1] = self.boss_position[1]  # Keep in sync
-            
-            # Move towards player
-            dx = self.player_position[0] - self.boss_position[0]
-            if abs(dx) > 50:  # Don't get too close
-                if dx > 0:
-                    self.boss_position[0] += 100 * dt
-                    self.boss_pos[0] = self.boss_position[0]  # Keep in sync
-                    self.boss_facing_right = True
-                else:
-                    self.boss_position[0] -= 100 * dt
-                    self.boss_pos[0] = self.boss_position[0]  # Keep in sync
-                    self.boss_facing_right = False
-            
-            # Sword attack
-            self.boss_attack_timer += dt
-            if self.boss_attack_timer >= self.boss_attack_cooldown:
-                dist = math.hypot(self.player_position[0] - self.boss_position[0],
-                                self.player_position[1] - self.boss_position[1])
-                if dist < 100:  # Close enough to attack
-                    self.boss_sword_swinging = True
-                    self.boss_sword_timer = 0
-                    self.boss_attack_timer = 0
-                    self.boss_sword_frame = 0
+            # Phase 3: Sword boss - 1v1 melee duel
+            if self.boss_landing:
+                # Boss landing animation
+                self.boss_landing_timer += dt
+                progress = min(1.0, self.boss_landing_timer / self.boss_landing_duration)
+                
+                # Smooth landing animation with easing
+                ease_progress = 1 - (1 - progress) ** 2  # Ease-out curve
+                current_y = self.boss_phase3_start_y + (self.boss_phase3_ground_y - self.boss_phase3_start_y) * ease_progress
+                
+                self.boss_position[1] = current_y
+                self.boss_pos[1] = self.boss_position[1]  # Keep in sync
+                
+                if progress >= 1.0:
+                    self.boss_landing = False
+                    print("[FinalBossScene] 🗡️ BOSS HAS LANDED! THE DUEL BEGINS! 🗡️")
+            else:
+                # Phase 3: Normal melee combat after landing
+                # Floating animation (slow hover up and down) - reduced amplitude for grounded boss
+                self.boss_position[1] = self.boss_phase3_ground_y + 15 * math.sin(self.boss_floating_offset * 0.8)
+                self.boss_pos[1] = self.boss_position[1]  # Keep in sync
+                
+                # Move towards player for melee combat
+                dx = self.player_position[0] - self.boss_position[0]
+                if abs(dx) > 80:  # Keep optimal melee distance
+                    if dx > 0:
+                        self.boss_position[0] += 120 * dt  # Slightly faster movement
+                        self.boss_pos[0] = self.boss_position[0]  # Keep in sync
+                        self.boss_facing_right = True
+                    else:
+                        self.boss_position[0] -= 120 * dt
+                        self.boss_pos[0] = self.boss_position[0]  # Keep in sync
+                        self.boss_facing_right = False
+                
+                # Sword attack at close range
+                self.boss_attack_timer += dt
+                if self.boss_attack_timer >= self.boss_attack_cooldown:
+                    dist = math.hypot(self.player_position[0] - self.boss_position[0],
+                                    self.player_position[1] - self.boss_position[1])
+                    if dist < 120:  # Close enough for melee attack
+                        self.boss_sword_swinging = True
+                        self.boss_sword_timer = 0
+                        self.boss_attack_timer = 0
+                        self.boss_sword_frame = 0
+                        print(f"[FinalBossScene] Boss sword attack! Distance: {dist:.1f}")
         
         # Update boss sword swing animation
         if self.boss_sword_swinging:
@@ -554,38 +639,83 @@ class FinalBossScene:
                     self.boss_sword_frame = 0
     
     def boss_shoot_orb(self):
-        """Boss shoots an orb at the player."""
+        """Boss shoots a large, dangerous orb at the player."""
         dx = self.player_position[0] - self.boss_position[0]
         dy = self.player_position[1] - self.boss_position[1]
         dist = math.hypot(dx, dy)
         
         if dist > 0:
-            speed = 200
+            # Boss orbs are faster and more dangerous
+            speed = 250 if self.current_phase == 2 else 200
             vel_x = (dx / dist) * speed
             vel_y = (dy / dist) * speed
             
             self.boss_bullets.append({
                 "pos": self.boss_position.copy(),
                 "vel": [vel_x, vel_y],
-                "timer": 0
+                "timer": 0,
+                "damage": 25 if self.current_phase == 2 else 20  # More damage in Phase 2
             })
+            
+            print(f"[FinalBossScene] Boss fired orb! Speed: {speed}, Damage: {25 if self.current_phase == 2 else 20}")
     
     def update_aliens(self, dt):
         """Update alien minions."""
         for alien in self.aliens[:]:
-            # Floating motion
-            alien["floating_offset"] += dt * alien["floating_speed"]
-            alien["pos"][1] = 150 + 50 * math.sin(alien["floating_offset"])
+            # Ground attack behavior
+            if not alien["is_ground_attacking"]:
+                # Normal floating behavior
+                alien["ground_attack_timer"] += dt
+                if alien["ground_attack_timer"] >= alien["ground_attack_cooldown"]:
+                    # Start ground attack
+                    alien["is_ground_attacking"] = True
+                    alien["ground_attack_duration"] = 0
+                    alien["ground_attack_timer"] = 0
+                    alien["ground_attack_cooldown"] = random.uniform(5.0, 12.0)  # Reset for next attack
+                    print(f"[FinalBossScene] Alien {id(alien)} starting ground attack!")
+                
+                # Enhanced floating motion - aliens move up and down quickly
+                alien["floating_offset"] += dt * alien["floating_speed"] * 3  # 3x faster movement
+                # More dramatic up and down movement
+                base_y = 150
+                amplitude = 80  # Increased amplitude for more dramatic movement
+                alien["pos"][1] = base_y + amplitude * math.sin(alien["floating_offset"])
+            else:
+                # Ground attack behavior
+                alien["ground_attack_duration"] += dt
+                
+                if alien["ground_attack_duration"] < 1.0:  # Diving down phase
+                    # Dive down to ground level
+                    target_y = self.floor_y - 40  # Ground level
+                    current_y = alien["pos"][1]
+                    if current_y <= target_y:
+                        alien["pos"][1] = target_y
+                    else:
+                        alien["pos"][1] += alien["ground_attack_speed"] * dt  # Move down
+                
+                elif alien["ground_attack_duration"] < 2.0:  # On ground phase
+                    # Stay on ground for a moment
+                    alien["pos"][1] = self.floor_y - 40
+                
+                elif alien["ground_attack_duration"] < 3.0:  # Flying back up phase
+                    # Fly back up quickly
+                    alien["pos"][1] -= alien["ground_attack_speed"] * 1.5 * dt
+                
+                else:  # End ground attack
+                    alien["is_ground_attacking"] = False
+                    alien["ground_attack_duration"] = 0
+                    print(f"[FinalBossScene] Alien {id(alien)} finished ground attack!")
             
             # Face player
             dx = self.player_position[0] - alien["pos"][0]
             alien["facing_right"] = dx > 0
             
-            # Attack
-            alien["attack_timer"] += dt
-            if alien["attack_timer"] >= alien["attack_cooldown"]:
-                alien["attack_timer"] = 0
-                self.alien_shoot_orb(alien)
+            # Attack (only when not ground attacking)
+            if not alien["is_ground_attacking"]:
+                alien["attack_timer"] += dt
+                if alien["attack_timer"] >= alien["attack_cooldown"]:
+                    alien["attack_timer"] = 0
+                    self.alien_shoot_orb(alien)
     
     def alien_shoot_orb(self, alien):
         """Alien shoots an orb at the player."""
@@ -626,10 +756,110 @@ class FinalBossScene:
                                         bullet["pos"][1] < 0 or bullet["pos"][1] > self.height):
                 self.boss_bullets.remove(bullet)
     
+    def create_explosion_particles(self, position, particle_count=15):
+        """Create explosion particle effect at the given position."""
+        print(f"[FinalBossScene] Creating explosion at {position} with {particle_count} particles!")
+        
+        # Add screen shake effect
+        self.screen_shake_timer = 0.2
+        self.screen_shake_intensity = 5
+        
+        for _ in range(particle_count):
+            # Random velocity in all directions
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(50, 200)
+            velocity = [math.cos(angle) * speed, math.sin(angle) * speed]
+            
+            # Random colors for explosion effect (fire and energy colors)
+            colors = [
+                (255, 100, 50),   # Orange-red
+                (255, 200, 50),   # Yellow-orange
+                (255, 150, 0),    # Orange
+                (255, 255, 100),  # Bright yellow
+                (255, 50, 50),    # Red
+                (255, 255, 200)   # Light yellow
+            ]
+            color = random.choice(colors)
+            
+            # Random particle properties
+            lifetime = random.uniform(0.5, 1.5)
+            size = random.uniform(2, 8)  # Slightly larger particles
+            
+            particle = {
+                "pos": position.copy(),
+                "vel": velocity,
+                "color": color,
+                "lifetime": lifetime,
+                "max_lifetime": lifetime,
+                "size": size,
+                "alpha": 255
+            }
+            self.explosion_particles.append(particle)
+    
+    def update_explosion_particles(self, dt):
+        """Update explosion particles."""
+        for particle in self.explosion_particles[:]:
+            # Update position
+            particle["pos"][0] += particle["vel"][0] * dt
+            particle["pos"][1] += particle["vel"][1] * dt
+            
+            # Apply gravity
+            particle["vel"][1] += 200 * dt
+            
+            # Update lifetime and alpha
+            particle["lifetime"] -= dt
+            particle["alpha"] = int(255 * (particle["lifetime"] / particle["max_lifetime"]))
+            
+            # Remove dead particles
+            if particle["lifetime"] <= 0:
+                self.explosion_particles.remove(particle)
+    
+    def draw_explosion_particles(self, surface):
+        """Draw explosion particles."""
+        for particle in self.explosion_particles:
+            # Create surface with alpha
+            particle_surface = pygame.Surface((particle["size"] * 2, particle["size"] * 2), pygame.SRCALPHA)
+            
+            # Draw particle with alpha
+            color_with_alpha = particle["color"] + (particle["alpha"],)
+            pygame.draw.circle(particle_surface, color_with_alpha, 
+                             (particle["size"], particle["size"]), particle["size"])
+            
+            # Draw to main surface
+            surface.blit(particle_surface, 
+                        (particle["pos"][0] - particle["size"], 
+                         particle["pos"][1] - particle["size"]))
+    
     def check_collisions(self):
         """Check all collision detection."""
-        # Player sword vs aliens
-        if self.player_sword_swinging and self.current_phase in [1, 2]:
+        # Player lightsaber vs aliens (F key - draw sword animation)
+        if self.player_anim_playing and self.player_anim_state == "draw" and self.current_phase in [1, 2]:
+            lightsaber_range = 100  # Slightly longer range for lightsaber
+            for alien in self.aliens[:]:
+                dist = math.hypot(self.player_position[0] - alien["pos"][0],
+                                self.player_position[1] - alien["pos"][1])
+                if dist < lightsaber_range:
+                    alien["health"] -= 50  # Lightsaber does more damage
+                    if alien["health"] <= 0:
+                        # Create explosion effect before removing alien
+                        self.create_explosion_particles(alien["pos"])
+                        self.aliens.remove(alien)
+                        print(f"[FinalBossScene] Alien defeated with lightsaber! {len(self.aliens)} remaining")
+        
+        # Player lightsaber vs boss (F key - Phase 3)
+        if self.player_anim_playing and self.player_anim_state == "draw" and self.current_phase == 3:
+            lightsaber_range = 100  # Lightsaber range
+            dist = math.hypot(self.player_position[0] - self.boss_position[0],
+                            self.player_position[1] - self.boss_position[1])
+            if dist < lightsaber_range:
+                damage = 35  # Lightsaber does heavy damage to boss
+                self.boss_health -= damage
+                print(f"[FinalBossScene] Boss hit by lightsaber! Damage: {damage}, Boss Health: {self.boss_health}")
+                # Create small impact effect
+                self.create_explosion_particles(self.boss_position, particle_count=8)
+        
+        # Player sword swing vs aliens (SPACE key - swing animation)
+        if self.player_anim_playing and self.player_anim_state == "swing" and self.current_phase in [1, 2]:
             sword_range = 80
             for alien in self.aliens[:]:
                 dist = math.hypot(self.player_position[0] - alien["pos"][0],
@@ -637,15 +867,20 @@ class FinalBossScene:
                 if dist < sword_range:
                     alien["health"] -= 30
                     if alien["health"] <= 0:
+                        # Create explosion effect before removing alien
+                        self.create_explosion_particles(alien["pos"])
                         self.aliens.remove(alien)
+                        print(f"[FinalBossScene] Alien defeated with sword swing! {len(self.aliens)} remaining")
         
-        # Player sword vs boss (Phase 3)
-        if self.player_sword_swinging and self.current_phase == 3:
+        # Player sword vs boss (Phase 2 and 3)
+        if self.player_anim_playing and self.player_anim_state == "swing" and self.current_phase in [2, 3]:
             sword_range = 80
             dist = math.hypot(self.player_position[0] - self.boss_position[0],
                             self.player_position[1] - self.boss_position[1])
             if dist < sword_range:
-                self.boss_health -= 20
+                damage = 20
+                self.boss_health -= damage
+                print(f"[FinalBossScene] Boss hit by player sword! Damage: {damage}, Boss Health: {self.boss_health}")
         
         # Boss sword vs player (Phase 3)
         if self.boss_sword_swinging and self.current_phase == 3:
@@ -653,15 +888,18 @@ class FinalBossScene:
             dist = math.hypot(self.player_position[0] - self.boss_position[0],
                             self.player_position[1] - self.boss_position[1])
             if dist < sword_range:
-                self.player_health -= 25
+                damage = self.boss_sword_damage
+                self.player_health -= damage
+                print(f"[FinalBossScene] Player hit by boss sword! Damage: {damage}, Health: {self.player_health}")
         
         # Alien bullets vs player
         for bullet in self.alien_bullets[:]:
             dist = math.hypot(bullet["pos"][0] - self.player_position[0],
                             bullet["pos"][1] - self.player_position[1])
             if dist < 25:
-                self.player_health -= 15
+                self.player_health -= 1  # Reduced to 1 damage
                 self.alien_bullets.remove(bullet)
+                print(f"[FinalBossScene] Player hit by alien orb! Damage: 1, Health: {self.player_health}")
                 if self.player_health <= 0:
                     print("[FinalBossScene] Game Over - You were defeated!")
                     self.game.running = False
@@ -671,49 +909,105 @@ class FinalBossScene:
             dist = math.hypot(bullet["pos"][0] - self.player_position[0],
                             bullet["pos"][1] - self.player_position[1])
             if dist < 25:
-                self.player_health -= 25
+                damage = bullet.get("damage", 25)  # Use damage from bullet or default
+                self.player_health -= damage
                 self.boss_bullets.remove(bullet)
+                print(f"[FinalBossScene] Player hit by boss orb! Damage: {damage}, Health: {self.player_health}")
                 if self.player_health <= 0:
                     print("[FinalBossScene] Game Over - You were defeated!")
                     self.game.running = False
         
+        # Check for game over in Phase 3 when player health reaches zero
+        if self.current_phase == 3 and self.player_health <= 0:
+            print("[FinalBossScene] 💀 GAME OVER - You were defeated in the final duel! 💀")
+            print("[FinalBossScene] The boss has won the epic sword battle!")
+            self.game.running = False
+        
     def draw(self, surface):
         """Draw the complete boss battle scene."""
+        # Calculate screen shake offset
+        shake_x = 0
+        shake_y = 0
+        if self.screen_shake_intensity > 0:
+            shake_x = random.uniform(-self.screen_shake_intensity, self.screen_shake_intensity)
+            shake_y = random.uniform(-self.screen_shake_intensity, self.screen_shake_intensity)
+        
         # Draw background
-        surface.blit(self.background_img, (0, 0))
+        surface.blit(self.background_img, (shake_x, shake_y))
         
         # Draw floor
-        pygame.draw.rect(surface, (40, 40, 40), (0, self.floor_y, self.width, self.height - self.floor_y))
+        pygame.draw.rect(surface, (40, 40, 40), (shake_x, self.floor_y + shake_y, self.width, self.height - self.floor_y))
         
         # Draw pillars
         for pillar_x, pillar_y in self.pillars:
-            surface.blit(self.pillar_img, (pillar_x, pillar_y))
+            surface.blit(self.pillar_img, (pillar_x + shake_x, pillar_y + shake_y))
         
         # Draw props (behind characters)
         for prop in self.props:
-            surface.blit(prop["img"], prop["pos"])
+            surface.blit(prop["img"], (prop["pos"][0] + shake_x, prop["pos"][1] + shake_y))
         
         # Draw aliens
         for alien in self.aliens:
             alien_img = self.alien_img
             if alien["facing_right"]:
                 alien_img = pygame.transform.flip(self.alien_img, True, False)
-            surface.blit(alien_img, (alien["pos"][0] - 30, alien["pos"][1] - 30))
+            
+            # Visual effect for ground attacking aliens
+            if alien.get("is_ground_attacking", False):
+                # Create a red tinted version for ground attacking aliens
+                tinted_img = alien_img.copy()
+                tinted_img.fill((255, 100, 100, 128), special_flags=pygame.BLEND_RGBA_MULT)
+                surface.blit(tinted_img, (alien["pos"][0] - 30 + shake_x, alien["pos"][1] - 30 + shake_y))
+            else:
+                surface.blit(alien_img, (alien["pos"][0] - 30 + shake_x, alien["pos"][1] - 30 + shake_y))
         
         # Draw boss
         if self.current_phase == 2:
             # Gun boss
-            surface.blit(self.boss_gun_img, (self.boss_position[0] - 60, self.boss_position[1] - 60))
+            surface.blit(self.boss_gun_img, (self.boss_position[0] - 60 + shake_x, self.boss_position[1] - 60 + shake_y))
         elif self.current_phase == 3:
-            # Sword boss
+            # Sword boss - 1v1 melee duel
             if self.boss_sword_swinging:
                 boss_img = self.boss_swing_frames[self.boss_sword_frame]
             else:
                 boss_img = self.boss_swing_frames[0]  # Idle frame
             
+            # Boss faces left by default, flip when moving right
             if self.boss_facing_right:
                 boss_img = pygame.transform.flip(boss_img, True, False)
-            surface.blit(boss_img, (self.boss_position[0] - 50, self.boss_position[1] - 50))
+            
+            # Landing effect during Phase 3 transition
+            if self.boss_landing:
+                # Create a dramatic landing effect with particles and glow
+                progress = min(1.0, self.boss_landing_timer / self.boss_landing_duration)
+                landing_intensity = int(255 * (1 - progress))  # Fade out as landing completes
+                
+                # Landing glow effect
+                glow_surface = pygame.Surface((boss_img.get_width() + 40, boss_img.get_height() + 40), pygame.SRCALPHA)
+                glow_surface.fill((255, 200, 0, landing_intensity))  # Golden landing glow
+                surface.blit(glow_surface, (self.boss_position[0] - 70 + shake_x, self.boss_position[1] - 70 + shake_y))
+                
+                # Landing particles effect
+                if progress < 0.8:  # Only show particles during first 80% of landing
+                    for i in range(3):
+                        particle_x = self.boss_position[0] + random.uniform(-30, 30)
+                        particle_y = self.boss_position[1] + random.uniform(-30, 30)
+                        particle_size = random.uniform(2, 6)
+                        particle_alpha = int(200 * (1 - progress))
+                        particle_surface = pygame.Surface((particle_size * 2, particle_size * 2), pygame.SRCALPHA)
+                        pygame.draw.circle(particle_surface, (255, 200, 0, particle_alpha), 
+                                         (particle_size, particle_size), particle_size)
+                        surface.blit(particle_surface, (particle_x - particle_size + shake_x, 
+                                                      particle_y - particle_size + shake_y))
+            
+            # Visual effect for attacking boss
+            if self.boss_sword_swinging:
+                # Create a red glow effect for attacking boss
+                glow_surface = pygame.Surface((boss_img.get_width() + 20, boss_img.get_height() + 20), pygame.SRCALPHA)
+                glow_surface.fill((255, 50, 50, 100))
+                surface.blit(glow_surface, (self.boss_position[0] - 60 + shake_x, self.boss_position[1] - 60 + shake_y))
+            
+            surface.blit(boss_img, (self.boss_position[0] - 50 + shake_x, self.boss_position[1] - 50 + shake_y))
         
         # Draw player with enhanced animation system
         if self.player_anim_playing and self.player_sword_frames:
@@ -730,14 +1024,17 @@ class FinalBossScene:
         
         # Apply floating offset for idle animation
         draw_y = self.player_position[1] - 40 + self.player_idle_float_offset
-        surface.blit(player_img, (self.player_position[0] - 25, draw_y))
+        surface.blit(player_img, (self.player_position[0] - 25 + shake_x, draw_y + shake_y))
         
         # Draw projectiles
         for bullet in self.alien_bullets:
-            surface.blit(self.alien_orb_img, (bullet["pos"][0] - 10, bullet["pos"][1] - 10))
+            surface.blit(self.alien_orb_img, (bullet["pos"][0] - 10 + shake_x, bullet["pos"][1] - 10 + shake_y))
         
         for bullet in self.boss_bullets:
-            surface.blit(self.boss_orb_img, (bullet["pos"][0] - 15, bullet["pos"][1] - 15))
+            surface.blit(self.boss_orb_img, (bullet["pos"][0] - 15 + shake_x, bullet["pos"][1] - 15 + shake_y))
+        
+        # Draw explosion particles
+        self.draw_explosion_particles(surface)
         
         # Draw UI
         self.draw_ui(surface)
@@ -755,22 +1052,66 @@ class FinalBossScene:
             surface.blit(text_surface, (self.width // 2 - text_surface.get_width() // 2, 
                                       self.height // 2 - text_surface.get_height() // 2))
         
-        # Draw victory screen
+        # Draw victory screen with credits
         if self.boss_defeated:
             overlay = pygame.Surface((self.width, self.height))
             overlay.fill((0, 0, 0))
             overlay.set_alpha(180)
             surface.blit(overlay, (0, 0))
             
+            # Calculate scroll position based on victory timer
+            scroll_offset = int(self.victory_timer * 50)  # Scroll speed
+            
             victory_font = pygame.font.SysFont(None, 72)
             victory_text = victory_font.render("VICTORY!", True, (255, 255, 0))
             surface.blit(victory_text, (self.width // 2 - victory_text.get_width() // 2, 
-                                      self.height // 2 - 100))
+                                      self.height // 2 - 200 - scroll_offset))
             
             subtitle_font = pygame.font.SysFont(None, 36)
             subtitle_text = subtitle_font.render("You have saved the galaxy!", True, (255, 255, 255))
             surface.blit(subtitle_text, (self.width // 2 - subtitle_text.get_width() // 2, 
-                                       self.height // 2 - 20))
+                                       self.height // 2 - 120 - scroll_offset))
+            
+            # Credits
+            credits_font = pygame.font.SysFont(None, 28)
+            credits = [
+                "🎮 STELLAR FORGE SIMULATOR 🎮",
+                "",
+                "🎯 FINAL BOSS BATTLE COMPLETED",
+                "⚔️ EPIC SWORD DUEL VICTORY",
+                "",
+                "🎨 GAME DEVELOPED BY:",
+                "   AI Assistant & Human Player",
+                "",
+                "🎵 SOUND DESIGN:",
+                "   Epic Battle Music",
+                "   Particle Effects",
+                "",
+                "🎭 SPECIAL THANKS:",
+                "   The Galaxy for inspiration",
+                "   All the alien minions",
+                "   The final boss for the challenge",
+                "",
+                "🌟 CONGRATULATIONS! 🌟",
+                "You have proven yourself worthy",
+                "of being the ultimate space warrior!",
+                "",
+                "🚀 THE END 🚀",
+                "",
+                "Press any key to exit..."
+            ]
+            
+            for i, credit_line in enumerate(credits):
+                if i * 30 - scroll_offset < self.height + 100:  # Only draw if on screen
+                    color = (255, 255, 255)
+                    if "VICTORY" in credit_line or "CONGRATULATIONS" in credit_line:
+                        color = (255, 255, 0)
+                    elif "🎮" in credit_line or "🌟" in credit_line or "🚀" in credit_line:
+                        color = (255, 200, 0)
+                    
+                    credit_surface = credits_font.render(credit_line, True, color)
+                    surface.blit(credit_surface, (self.width // 2 - credit_surface.get_width() // 2, 
+                                                self.height // 2 + 50 + (i * 30) - scroll_offset))
         
         # Draw fade overlay
         if self.fade_alpha > 0:
@@ -789,10 +1130,20 @@ class FinalBossScene:
         elif self.current_phase == 2:
             phase_desc = "Final Boss + Minions"
         else:
-            phase_desc = "Sword Duel"
+            if self.boss_landing:
+                phase_desc = "BOSS LANDING - PREPARE FOR DUEL!"
+            else:
+                phase_desc = "EPIC SWORD DUEL - 1v1 MELEE!"
         
         phase_surface = font.render(f"{phase_text}: {phase_desc}", True, (255, 255, 255))
         surface.blit(phase_surface, (20, 20))
+        
+        # Phase 3 landing progress indicator
+        if self.current_phase == 3 and self.boss_landing:
+            progress = min(1.0, self.boss_landing_timer / self.boss_landing_duration)
+            landing_text = f"BOSS LANDING: {int(progress * 100)}%"
+            landing_surface = font.render(landing_text, True, (255, 200, 0))
+            surface.blit(landing_surface, (20, 50))
         
         # Player health bar
         player_health_width = 200
@@ -836,8 +1187,26 @@ class FinalBossScene:
         
         # Controls
         controls_font = pygame.font.SysFont(None, 24)
-        controls_text = controls_font.render("Arrow Keys: Move, F: Draw Sword, SPACE: Swing", True, (200, 200, 200))
+        controls_text = controls_font.render("Arrow Keys: Move, UP: Jump, F: Lightsaber, SPACE: Sword Swing", True, (200, 200, 200))
         surface.blit(controls_text, (20, self.height - 30))
+        
+        # Combat info
+        if self.current_phase in [1, 2]:
+            combat_info = controls_font.render("F: Kill aliens (50 damage), SPACE: Kill aliens (30 damage), Alien orbs: 1 damage", True, (255, 255, 100))
+            surface.blit(combat_info, (20, self.height - 50))
+            
+            # Alien behavior info
+            if self.current_phase == 1:
+                behavior_info = controls_font.render("Aliens: Random ground attacks every 5-12 seconds", True, (255, 200, 100))
+                surface.blit(behavior_info, (20, self.height - 70))
+        
+        elif self.current_phase == 3:
+            # Phase 3: Sword duel info
+            combat_info = controls_font.render("FINAL BOSS: Sword duel! SPACE: Attack boss (20 damage), Boss sword: 25 damage", True, (255, 100, 100))
+            surface.blit(combat_info, (20, self.height - 50))
+            
+            duel_info = controls_font.render("Boss: Floats slowly, attacks at close range, faces player", True, (255, 200, 100))
+            surface.blit(duel_info, (20, self.height - 70))
     
     def draw(self, surface):
         """Draw the complete boss battle scene with proper asset usage."""
@@ -871,19 +1240,28 @@ class FinalBossScene:
             alien_img = self.alien_img
             if alien["facing_right"]:
                 alien_img = pygame.transform.flip(self.alien_img, True, False)
-            surface.blit(alien_img, (alien["pos"][0] - 30, alien["pos"][1] - 30))
+            
+            # Visual effect for ground attacking aliens
+            if alien.get("is_ground_attacking", False):
+                # Create a red tinted version for ground attacking aliens
+                tinted_img = alien_img.copy()
+                tinted_img.fill((255, 100, 100, 128), special_flags=pygame.BLEND_RGBA_MULT)
+                surface.blit(tinted_img, (alien["pos"][0] - 30, alien["pos"][1] - 30))
+            else:
+                surface.blit(alien_img, (alien["pos"][0] - 30, alien["pos"][1] - 30))
         
         # --- Boss (different forms per phase) ---
         if self.current_phase == 2:
             # Gun boss - use bossGun.png
             surface.blit(self.boss_gun_img, (self.boss_position[0] - 60, self.boss_position[1] - 60))
         elif self.current_phase == 3:
-            # Sword boss - use boss swing animation frames
+            # Sword boss - 1v1 melee duel
             if self.boss_sword_swinging:
                 boss_img = self.boss_swing_frames[self.boss_sword_frame]
             else:
                 boss_img = self.boss_swing_frames[0]  # Idle frame
             
+            # Boss faces left by default, flip when moving right
             if self.boss_facing_right:
                 boss_img = pygame.transform.flip(boss_img, True, False)
             surface.blit(boss_img, (self.boss_position[0] - 50, self.boss_position[1] - 50))
@@ -913,6 +1291,9 @@ class FinalBossScene:
         # Boss orbs
         for bullet in self.boss_bullets:
             surface.blit(self.boss_orb_img, (bullet["pos"][0] - 15, bullet["pos"][1] - 15))
+        
+        # Draw explosion particles
+        self.draw_explosion_particles(surface)
         
         # --- UI Overlay ---
         self.draw_ui(surface)
