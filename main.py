@@ -5292,7 +5292,7 @@ class BiomeSurfaceScene:
         self.sky_color = (120, 180, 255)
         # Load rocket bottom image
         try:
-            self.rocket_bottom_img = pygame.image.load(os.path.join("assets", "rocket", "rocketbottom.png")).convert_alpha()
+            self.rocket_bottom_img = pygame.image.load(os.path.join("assets", "rocket", "rocket.png")).convert_alpha()
         except Exception:
             # Create fallback if image not found
             self.rocket_bottom_img = pygame.Surface((100, 200), pygame.SRCALPHA)
@@ -5527,11 +5527,11 @@ class DesertSurfaceScene(BiomeSurfaceScene):
         
         # --- Rocket bottom image (behind player, in front of props) ---
         if self.rocket_bottom_img:
-            target_height = self.sand_top_y
+            target_height = self.sand_top_y 
             target_width = int(self.rocket_bottom_img.get_width() * (target_height / self.rocket_bottom_img.get_height()))
             scaled_img = pygame.transform.scale(self.rocket_bottom_img, (target_width, target_height))
             rocket_x = self.ship_pos[0] - target_width // 2
-            rocket_y = self.sand_top_y - target_height
+            rocket_y = self.sand_top_y - target_height + 200
             surface.blit(scaled_img, (rocket_x, rocket_y))
         
         # --- Player (always in front of behind props, behind infront props) ---
@@ -5678,7 +5678,7 @@ class ForestSurfaceScene(BiomeSurfaceScene):
             target_width = int(self.rocket_bottom_img.get_width() * (target_height / self.rocket_bottom_img.get_height()))
             scaled_img = pygame.transform.scale(self.rocket_bottom_img, (target_width, target_height))
             rocket_x = self.ship_pos[0] - target_width // 2
-            rocket_y = self.sand_top_y - target_height
+            rocket_y = self.sand_top_y - target_height + 200
             surface.blit(scaled_img, (rocket_x, rocket_y))
         
         # --- Player ---
@@ -5870,7 +5870,7 @@ class IcySurfaceScene(BiomeSurfaceScene):
             target_width = int(self.rocket_bottom_img.get_width() * (target_height / self.rocket_bottom_img.get_height()))
             scaled_img = pygame.transform.scale(self.rocket_bottom_img, (target_width, target_height))
             rocket_x = self.ship_pos[0] - target_width // 2
-            rocket_y = self.sand_top_y - target_height
+            rocket_y = self.sand_top_y - target_height + 200
             surface.blit(scaled_img, (rocket_x, rocket_y))
         
         # --- Player ---
