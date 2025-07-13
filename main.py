@@ -150,8 +150,8 @@ class FinalBossScene:
         self.player_idle_float_amplitude = 3
         
         # Boss state
-        self.boss_health = 100
-        self.boss_max_health = 100
+        self.boss_health = 7  # Boss requires 7 hits to defeat
+        self.boss_max_health = 7
         self.boss_pos = [self.width // 2, self.height // 2]
         self.boss_position = [self.width // 2, self.height // 2]  # Alias for compatibility
         self.boss_facing_right = False
@@ -378,8 +378,8 @@ class FinalBossScene:
             self.boss_landing = True
             self.boss_landing_timer = 0
             self.boss_phase3_start_y = self.boss_position[1]  # Current boss position
-            self.boss_health = 50  # Reset boss health for final phase
-            self.boss_max_health = 50
+            self.boss_health = 7  # Reset boss health for final phase - requires 7 hits
+            self.boss_max_health = 7
             self.boss_attack_cooldown = 2.0  # Slower attacks for melee combat
             self.boss_sword_damage = 25  # Boss sword damage
             print("[FinalBossScene] Phase 3: Final Boss Sword Duel - 1v1 Melee Battle")
@@ -420,8 +420,8 @@ class FinalBossScene:
         # Handle victory state
         if self.boss_defeated:
             self.victory_timer += dt
-            # Credits scroll for 15 seconds, then fade out
-            if self.victory_timer > 15.0:
+            # Show victory message for 3 seconds, then show credits for 10 seconds, then fade out
+            if self.victory_timer > 13.0:
                 self.fade_direction = 1  # Fade out
                 if self.fade_alpha >= 255:
                     print("[FinalBossScene] 🎉 Congratulations! You have completed the game! 🎉")
@@ -852,9 +852,9 @@ class FinalBossScene:
             dist = math.hypot(self.player_position[0] - self.boss_position[0],
                             self.player_position[1] - self.boss_position[1])
             if dist < lightsaber_range:
-                damage = 35  # Lightsaber does heavy damage to boss
+                damage = 1  # Each hit reduces boss health by 1
                 self.boss_health -= damage
-                print(f"[FinalBossScene] Boss hit by lightsaber! Damage: {damage}, Boss Health: {self.boss_health}")
+                print(f"[FinalBossScene] Boss hit by lightsaber! Boss Health: {self.boss_health}/7")
                 # Create small impact effect
                 self.create_explosion_particles(self.boss_position, particle_count=8)
         
@@ -878,9 +878,9 @@ class FinalBossScene:
             dist = math.hypot(self.player_position[0] - self.boss_position[0],
                             self.player_position[1] - self.boss_position[1])
             if dist < sword_range:
-                damage = 20
+                damage = 1  # Each hit reduces boss health by 1
                 self.boss_health -= damage
-                print(f"[FinalBossScene] Boss hit by player sword! Damage: {damage}, Boss Health: {self.boss_health}")
+                print(f"[FinalBossScene] Boss hit by player sword! Boss Health: {self.boss_health}/7")
         
         # Boss sword vs player (Phase 3)
         if self.boss_sword_swinging and self.current_phase == 3:
@@ -1052,54 +1052,38 @@ class FinalBossScene:
             surface.blit(text_surface, (self.width // 2 - text_surface.get_width() // 2, 
                                       self.height // 2 - text_surface.get_height() // 2))
         
-        # Draw victory screen with credits
+        # Draw victory screen with victory message and credits
         if self.boss_defeated:
             overlay = pygame.Surface((self.width, self.height))
             overlay.fill((0, 0, 0))
             overlay.set_alpha(180)
             surface.blit(overlay, (0, 0))
             
-            # Calculate scroll position based on victory timer
-            scroll_offset = int(self.victory_timer * 50)  # Scroll speed
-            
-            victory_font = pygame.font.SysFont(None, 72)
-            victory_text = victory_font.render("VICTORY!", True, (255, 255, 0))
-            surface.blit(victory_text, (self.width // 2 - victory_text.get_width() // 2, 
-                                      self.height // 2 - 200 - scroll_offset))
-            
-            subtitle_font = pygame.font.SysFont(None, 36)
-            subtitle_text = subtitle_font.render("You have saved the galaxy!", True, (255, 255, 255))
-            surface.blit(subtitle_text, (self.width // 2 - subtitle_text.get_width() // 2, 
-                                       self.height // 2 - 120 - scroll_offset))
-            
-            # Credits
-            credits_font = pygame.font.SysFont(None, 28)
-            credits = [
-                "🎮 STELLAR FORGE SIMULATOR 🎮",
-                "",
-                "🎯 FINAL BOSS BATTLE COMPLETED",
-                "⚔️ EPIC SWORD DUEL VICTORY",
-                "",
-                "🎨 GAME DEVELOPED BY:",
-                "   AI Assistant & Human Player",
-                "",
-                "🎵 SOUND DESIGN:",
-                "   Epic Battle Music",
-                "   Particle Effects",
-                "",
-                "🎭 SPECIAL THANKS:",
-                "   The Galaxy for inspiration",
-                "   All the alien minions",
-                "   The final boss for the challenge",
-                "",
-                "🌟 CONGRATULATIONS! 🌟",
-                "You have proven yourself worthy",
-                "of being the ultimate space warrior!",
-                "",
-                "🚀 THE END 🚀",
-                "",
-                "Press any key to exit..."
-            ]
+            # Show victory message for first 3 seconds
+            if self.victory_timer <= 3.0:
+                # Victory message
+                victory_font = pygame.font.SysFont(None, 64)
+                victory_text = victory_font.render("The evil dildo strapped alien dies", True, (255, 255, 0))
+                surface.blit(victory_text, (self.width // 2 - victory_text.get_width() // 2,
+                                          self.height // 2 - 50))
+            else:
+                # Show credits after 3 seconds
+                # Calculate scroll position based on remaining time
+                credits_timer = self.victory_timer - 3.0
+                scroll_offset = int(credits_timer * 40)  # Slower scroll speed
+                
+                # Credits
+                credits_font = pygame.font.SysFont(None, 32)
+                credits = [
+                    "made by → Bombil",
+                    "char design → Baburao & Uddv",
+                    "",
+                    "Game completed successfully!",
+                    "",
+                    "Thanks for playing!",
+                    "",
+                    "Press any key to exit..."
+                ]
             
             for i, credit_line in enumerate(credits):
                 if i * 30 - scroll_offset < self.height + 100:  # Only draw if on screen
@@ -1177,7 +1161,7 @@ class FinalBossScene:
                                                        boss_health_width, boss_health_height), 2)
             
             # Boss health text
-            boss_text = font.render(f"Boss: {self.boss_health}/{self.boss_max_health}", True, (255, 255, 255))
+            boss_text = font.render(f"Boss: {self.boss_health}/7 hits", True, (255, 255, 255))
             surface.blit(boss_text, (boss_health_x, boss_health_y - 25))
         
         # Alien count (Phase 1 and 2)
@@ -1202,7 +1186,7 @@ class FinalBossScene:
         
         elif self.current_phase == 3:
             # Phase 3: Sword duel info
-            combat_info = controls_font.render("FINAL BOSS: Sword duel! SPACE: Attack boss (20 damage), Boss sword: 25 damage", True, (255, 100, 100))
+            combat_info = controls_font.render("FINAL BOSS: Sword duel! SPACE/F: Attack boss (1 hit), Boss sword: 25 damage", True, (255, 100, 100))
             surface.blit(combat_info, (20, self.height - 50))
             
             duel_info = controls_font.render("Boss: Floats slowly, attacks at close range, faces player", True, (255, 200, 100))
@@ -1365,7 +1349,7 @@ CONFIG = {
     "rocket_thrust": 8000,  # Massive thrust for extremely powerful movement
     "rocket_rotation_speed": 10,  # Very fast rotation for ultra-responsive turning
     "rocket_initial_fuel": 1000,
-    "fuel_consumption_rate": 0.5,
+    "fuel_consumption_rate": 0.2,
     "background_color": (5, 5, 15),  # Slightly darker background
     "star_color": (255, 255, 0),
     "asteroid_color": (100, 100, 100),
@@ -1385,7 +1369,7 @@ CONFIG = {
     "bullet_lifetime": 2.0,
     "bullet_color": (255, 255, 100),
     "rocket_fire_rate": 0.3,
-    "map_size": 300,
+    "map_size": 3000,
     "map_position": (980, 20),
     "mission_types": ["collect", "destroy", "explore", "deliver", "rescue", "defend", "research"],  # New mission types
     "mission_reward_min": 100,
@@ -1489,7 +1473,7 @@ def generate_planet_properties(orbital_distance, star_mass):
     density_factor = density_model.predict(dist_poly)[0][0]
     density_factor = np.clip(density_factor + np.random.normal(0, 0.1), 0.05, 1.0)
     # --- Biome assignment ---
-    biomes = ["desert", "ice", "forest", "ocean", "volcanic", "gas", "rocky", "toxic"]
+    biomes = ["desert", "ice", "forest"]
     biome_type = random.choices(["desert", "ice", "forest"], weights=[0.3, 0.3, 0.4])[0]
     # --- Biome-specific properties ---
     if biome_type == "desert":
@@ -2653,15 +2637,16 @@ class Rocket(CelestialBody):
         self.thrusting = False
         self.turning_left = False
         self.turning_right = False
+        self.braking = False
         self.fuel = CONFIG["rocket_initial_fuel"]
         self.max_fuel = CONFIG["rocket_initial_fuel"]
         
         # Landing and takeoff system
         self.landed_on_planet = None
         self.takeoff_timer = 0
-        self.takeoff_duration = 5.0  # 5 seconds to takeoff
-        self.takeoff_fuel_cost = 100
-        self.takeoff_thrust_multiplier = 5.0  # Stronger takeoff for smooth launch
+        self.takeoff_duration = 2.0  # 2 seconds to takeoff
+        self.takeoff_fuel_cost = 10
+        self.takeoff_thrust_multiplier = 0.5  # Stronger takeoff for smooth launch
         self.is_taking_off = False
         self.landing_velocity = 0  # Track landing velocity for damage
         
@@ -2943,7 +2928,7 @@ class Rocket(CelestialBody):
         self.angle %= 2 * math.pi
 
     def apply_thrust(self):
-        """Apply thrust if thrusting and has fuel."""
+        """Apply thrust if thrusting and has fuel, or apply braking if braking."""
         if self.thrusting and self.fuel > 0:
             # Thrust in the direction of the rocket's nose (forward)
             direction = np.array([math.cos(self.angle), math.sin(self.angle)])
@@ -2952,6 +2937,16 @@ class Rocket(CelestialBody):
             self.fuel -= CONFIG["fuel_consumption_rate"]
             if self.fuel < 0:
                 self.fuel = 0
+        
+        if self.braking:
+            # Apply strong braking force opposite to current velocity
+            current_speed = np.linalg.norm(self.velocity)
+            if current_speed > 0.1:  # Only brake if moving
+                # Calculate braking force opposite to velocity direction
+                brake_direction = -self.velocity / current_speed
+                brake_force = brake_direction * self.thrust * 1.5  # Stronger than thrust for quick braking
+                self.apply_force(brake_force)
+                print(f"[Rocket] Braking applied! Speed: {current_speed:.1f}")
 
     def update_trajectory(self, celestial_bodies, dt):
         """Predict and store the rocket's future trajectory points for visualization."""
@@ -3952,6 +3947,7 @@ class Game:
         self.selected_target = None
         self.target_distance = 0
         self.scan_timer = 0
+        self.last_planet = None  # Track the last planet the rocket was on
         
         # Set camera to follow rocket
         self.camera.set_target(self.rocket)
@@ -4183,6 +4179,11 @@ class Game:
                 elif event.key == pygame.K_n:
                     self.ui.showing_missions = not self.ui.showing_missions
                 
+                # Return to surface scene with E key
+                elif event.key == pygame.K_e and hasattr(self, 'last_planet') and self.last_planet:
+                    # Return to the last planet's surface scene
+                    self.enter_planet_surface_scene(self.last_planet)
+                
                 # Target scanning
                 elif event.key == pygame.K_TAB:
                     self.scan_for_target()
@@ -4218,10 +4219,14 @@ class Game:
         self.rocket.thrusting = False
         self.rocket.turning_left = False
         self.rocket.turning_right = False
+        self.rocket.braking = False
         
         # Movement controls
         if keys[pygame.K_w] or keys[pygame.K_UP]:
             self.rocket.thrusting = True
+        
+        if keys[pygame.K_s] or keys[pygame.K_DOWN]:
+            self.rocket.braking = True
         
         if keys[pygame.K_a] or keys[pygame.K_LEFT]:
             self.rocket.turning_left = True
@@ -4350,22 +4355,54 @@ class Game:
                     # Landing/crash detection
                     if distance < body.radius + self.rocket.radius:
                         relative_vel = np.linalg.norm(self.rocket.velocity - body.velocity)
-                        if self.rocket.landed_on_planet != body:
-                            if relative_vel > 30:
-                                # Crash landing
+                        
+                        # Check if rocket is taking off from this planet (moving away from surface)
+                        is_taking_off = False
+                        if self.rocket.landed_on_planet == body:
+                            # Calculate if rocket is moving away from planet surface
+                            rocket_to_planet = self.rocket.position - body.position
+                            rocket_to_planet_normalized = rocket_to_planet / np.linalg.norm(rocket_to_planet)
+                            velocity_away_from_planet = np.dot(self.rocket.velocity, rocket_to_planet_normalized)
+                            is_taking_off = velocity_away_from_planet > 5  # Moving away at >5 speed
+                            
+                            if is_taking_off:
+                                # Rocket is taking off - clear landed state and prevent collision
+                                self.rocket.landed_on_planet = None
+                                print(f"[Game] Rocket taking off from {body.name}")
+                        
+                        # Only process collision if not taking off
+                        if not is_taking_off and self.rocket.landed_on_planet != body:
+                            # Check if this is a planet with safe biome types
+                            is_safe_planet = (isinstance(body, Planet) and 
+                                            body.biome_type in ["icy", "forest", "desert"])
+                            
+                            if not is_safe_planet:
+                                # Collision with non-safe object - apply 50 damage
                                 self.rocket.take_damage(50)
                                 self.create_explosion(self.rocket.position, 30)
+                                print(f"[Game] Rocket took 50 damage from collision with {body.name} ({type(body).__name__})")
+                                
+                                # For non-planet objects or unsafe planets, just bounce off
                                 normal = (self.rocket.position - body.position) / distance
                                 self.rocket.velocity = self.rocket.velocity - 2 * np.dot(self.rocket.velocity, normal) * normal
                                 self.rocket.velocity *= 0.3
-                                # Auto-transition to surface scene (crash)
-                                self.enter_planet_surface_scene(body, None, crash=True)
                             else:
-                                # Soft landing
-                                self.rocket.landed_on_planet = body
-                                self.rocket.velocity = body.velocity.copy()
-                                direction = (self.rocket.position - body.position) / distance
-                                self.rocket.position = body.position + direction * (body.radius + self.rocket.radius)
+                                # Safe planet landing mechanics (preserved from original)
+                                if relative_vel > 30:
+                                    # Crash landing on safe planet
+                                    self.rocket.take_damage(50)
+                                    self.create_explosion(self.rocket.position, 30)
+                                    normal = (self.rocket.position - body.position) / distance
+                                    self.rocket.velocity = self.rocket.velocity - 2 * np.dot(self.rocket.velocity, normal) * normal
+                                    self.rocket.velocity *= 0.3
+                                    # Auto-transition to surface scene (crash)
+                                    self.enter_planet_surface_scene(body, None, crash=True)
+                                else:
+                                    # Soft landing on safe planet
+                                    self.rocket.landed_on_planet = body
+                                    self.rocket.velocity = body.velocity.copy()
+                                    direction = (self.rocket.position - body.position) / distance
+                                    self.rocket.position = body.position + direction * (body.radius + self.rocket.radius)
         
         # Check for collisions with bullets
         for bullet in self.bullets[:]:
@@ -4755,7 +4792,7 @@ class Game:
             self.planet_surface_scene = DesertSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
         elif getattr(planet, 'biome_type', None) == 'forest':
             self.planet_surface_scene = ForestSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
-        elif getattr(planet, 'biome_type', None) == 'icy':
+        elif getattr(planet, 'biome_type', None) in ['ice', 'icy']:
             self.planet_surface_scene = IcySurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
         else:
             self.planet_surface_scene = BiomeSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
@@ -4768,6 +4805,8 @@ class Game:
         self.scene_transition = "to_space"
         self.fade_direction = 1  # Fade out
         self.next_scene = (planet, rocket_state)
+        # Store the planet for potential return
+        self.last_planet = planet
     def _do_space_scene_switch(self):
         planet, rocket_state = self.next_scene if self.next_scene else (None, None)
         direction = np.array([1.0, 0.0])
@@ -4791,6 +4830,8 @@ class Game:
         self.scene_transition = "to_planet_surface"
         self.fade_direction = 1  # Fade out
         self.next_scene = (planet, rocket_state, crash)
+        # Store the planet for potential return
+        self.last_planet = planet
 
     def _do_planet_surface_scene_switch(self):
         planet, rocket_state, crash = self.next_scene if self.next_scene else (None, None, False)
@@ -5405,14 +5446,27 @@ class DesertSurfaceScene(BiomeSurfaceScene):
         self.sand_tiles = []
         for i in range((self.width // sand_tile_w) + 3):
             self.sand_tiles.append({'img': sand_scaled, 'x': i * sand_tile_w, 'y': self.sand_top_y})
-        # --- Dune background setup ---
-        dune_h = self.bg_img.get_height()
-        dune_w = self.bg_img.get_width()
-        # Position dunes so their bottom edge aligns with sand top
-        dune_y = self.sand_top_y - dune_h
+        # --- Dune background scaling and setup ---
+        # Scale background to cover the full area above the floor
+        bg_area_height = self.sand_top_y  # Height of area above floor
+        bg_original_w = self.bg_img.get_width()
+        bg_original_h = self.bg_img.get_height()
+        
+        # Scale background to fit the area above floor while maintaining aspect ratio
+        # Reduce scaling to make dunes less prominent
+        scale_factor = (bg_area_height / bg_original_h) * 0.6  # 60% of full scale
+        bg_scaled_w = int(bg_original_w * scale_factor)
+        bg_scaled_h = int(bg_original_h * scale_factor)
+        
+        # Create scaled background image
+        bg_scaled = pygame.transform.scale(self.bg_img, (bg_scaled_w, bg_scaled_h))
+        
+        # Tile the scaled background horizontally
+        # Position dunes closer to the ground
+        dune_y = self.sand_top_y - bg_scaled_h + 130  # Move dunes down by 50 pixels
         self.dune_tiles = []
-        for i in range((self.width // dune_w) + 3):
-            self.dune_tiles.append({'img': self.bg_img, 'x': i * dune_w, 'y': dune_y})
+        for i in range((self.width // bg_scaled_w) + 3):
+            self.dune_tiles.append({'img': bg_scaled, 'x': i * bg_scaled_w, 'y': dune_y})
         # --- Sky gradient setup ---
         self.sky_gradient = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
         for y in range(self.height):
@@ -5550,13 +5604,26 @@ class ForestSurfaceScene(BiomeSurfaceScene):
         self.ground_tiles = []
         for i in range((self.width // ground_tile_w) + 3):
             self.ground_tiles.append({'img': ground_scaled, 'x': i * ground_tile_w, 'y': self.sand_top_y})
-        # --- Background tiling ---
-        bg_h = self.bg_img.get_height()
-        bg_w = self.bg_img.get_width()
-        bg_y = self.sand_top_y - bg_h
+        
+        # --- Background scaling and tiling ---
+        # Scale background to cover the full area above the floor with extra scaling
+        bg_area_height = self.sand_top_y  # Height of area above floor
+        bg_original_w = self.bg_img.get_width()
+        bg_original_h = self.bg_img.get_height()
+        
+        # Scale background with extra magnification (1.5x more scaling)
+        scale_factor = (bg_area_height / bg_original_h) * 1.5
+        bg_scaled_w = int(bg_original_w * scale_factor)
+        bg_scaled_h = int(bg_original_h * scale_factor)
+        
+        # Create scaled background image
+        bg_scaled = pygame.transform.scale(self.bg_img, (bg_scaled_w, bg_scaled_h))
+        
+        # Tile the scaled background horizontally
         self.bg_tiles = []
-        for i in range((self.width // bg_w) + 3):
-            self.bg_tiles.append({'img': self.bg_img, 'x': i * bg_w, 'y': bg_y})
+        for i in range((self.width // bg_scaled_w) + 3):
+            self.bg_tiles.append({'img': bg_scaled, 'x': i * bg_scaled_w, 'y': 0})
+        
         # --- Sky gradient ---
         self.sky_gradient = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
         for y in range(self.height):
@@ -5566,37 +5633,46 @@ class ForestSurfaceScene(BiomeSurfaceScene):
             b = int(60 * (1-t) + 120 * t)
             a = 255
             pygame.draw.line(self.sky_gradient, (r, g, b, a), (0, y), (self.width, y))
+        
         # --- Prop placement with Z-layering ---
         self.props_behind = []
         self.props_infront = []
         ground_y = self.sand_top_y
+        
         for i in range(16):
             img = random.choice(self.prop_imgs)
-            scale = random.uniform(0.7, 1.2)
+            # Scale up trees to 2x their current size
+            base_scale = random.uniform(2.0, 2.2)
+            # Double the scale for trees (Tree1.png, Tree2.png, Tree3.png)
+            if any(tree_name in img.get_name() if hasattr(img, 'get_name') else 'Tree' in str(img) for tree_name in ['Tree1', 'Tree2', 'Tree3']):
+                scale = base_scale * 2.0  # 2x scaling for trees
+            else:
+                scale = base_scale  # Normal scaling for other props (logs)
             prop_img = pygame.transform.rotozoom(img, random.uniform(-10, 10), scale)
             prop_w, prop_h = prop_img.get_size()
             x = random.randint(60, self.width - 60)
-            y = ground_y + self.sand_height
+            
+            # Position props above the floor (not on the floor)
+            # Place them extremely close to the ground level
+            y = ground_y - random.randint(-113, -110)  # 20-23 pixels below the floor (brought down even more)
             rect = prop_img.get_rect(midbottom=(x, y))
-            z = random.choices(['behind', 'infront'], weights=[70, 30])[0]
-            if z == 'behind':
-                self.props_behind.append({'img': prop_img, 'rect': rect})
-            else:
-                self.props_infront.append({'img': prop_img, 'rect': rect})
+            
+            # All props go behind the floor (Z-axis layering)
+            self.props_behind.append({'img': prop_img, 'rect': rect})
     def render(self, surface):
         # --- Sky gradient (furthest back) ---
         surface.blit(self.sky_gradient, (0, 0))
-        # --- Forest background (behind sand, above sky) ---
+        # --- Forest background (behind ground, above sky) ---
         for bg in self.bg_tiles:
             surface.blit(bg['img'], (bg['x'], bg['y']))
-        # --- Ground (walkable) ---
-        for tile in self.ground_tiles:
-            surface.blit(tile['img'], (tile['x'], tile['y']))
-        # --- Props behind player ---
+        # --- Props behind ground (trees and logs) ---
         for prop in self.props_behind:
             surface.blit(prop['img'], prop['rect'])
+        # --- Ground (walkable) - on top of props ---
+        for tile in self.ground_tiles:
+            surface.blit(tile['img'], (tile['x'], tile['y']))
         
-        # --- Rocket bottom image (behind player, in front of props) ---
+        # --- Rocket bottom image (behind player, in front of ground) ---
         if self.rocket_bottom_img:
             target_height = self.sand_top_y
             target_width = int(self.rocket_bottom_img.get_width() * (target_height / self.rocket_bottom_img.get_height()))
@@ -5607,9 +5683,6 @@ class ForestSurfaceScene(BiomeSurfaceScene):
         
         # --- Player ---
         self.player.render(surface)
-        # --- Props in front of player ---
-        for prop in self.props_infront:
-            surface.blit(prop['img'], prop['rect'])
         # --- Prompt ---
         if self.enter_ship_prompt and self.prompt_active:
             font = pygame.font.SysFont(None, 32)
@@ -5682,13 +5755,26 @@ class IcySurfaceScene(BiomeSurfaceScene):
         self.ground_tiles = []
         for i in range((self.width // ground_tile_w) + 3):
             self.ground_tiles.append({'img': ground_scaled, 'x': i * ground_tile_w, 'y': self.sand_top_y})
-        # --- Background tiling ---
-        bg_h = self.bg_img.get_height()
-        bg_w = self.bg_img.get_width()
-        bg_y = self.sand_top_y - bg_h
+        
+        # --- Background scaling and tiling ---
+        # Scale background to cover the full area above the floor
+        bg_area_height = self.sand_top_y  # Height of area above floor
+        bg_original_w = self.bg_img.get_width()
+        bg_original_h = self.bg_img.get_height()
+        
+        # Scale background to fit the area above floor while maintaining aspect ratio
+        scale_factor = bg_area_height / bg_original_h
+        bg_scaled_w = int(bg_original_w * scale_factor)
+        bg_scaled_h = bg_area_height
+        
+        # Create scaled background image
+        bg_scaled = pygame.transform.scale(self.bg_img, (bg_scaled_w, bg_scaled_h))
+        
+        # Tile the scaled background horizontally
         self.bg_tiles = []
-        for i in range((self.width // bg_w) + 3):
-            self.bg_tiles.append({'img': self.bg_img, 'x': i * bg_w, 'y': bg_y})
+        for i in range((self.width // bg_scaled_w) + 3):
+            self.bg_tiles.append({'img': bg_scaled, 'x': i * bg_scaled_w, 'y': 130})
+        
         # --- Sky gradient ---
         self.sky_gradient = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
         for y in range(self.height):
@@ -5698,25 +5784,29 @@ class IcySurfaceScene(BiomeSurfaceScene):
             b = int(255 * (1-t) + 255 * t)
             a = 255
             pygame.draw.line(self.sky_gradient, (r, g, b, a), (0, y), (self.width, y))
+        
         # --- Prop placement with Z-layering ---
         self.props_behind = []
         self.props_infront = []
         ground_y = self.sand_top_y
+        
         for i in range(16):
             img = random.choice(self.prop_imgs)
             scale = random.uniform(0.7, 1.2)
-            prop_img = pygame.transform.rotozoom(img, 0, scale)
+            prop_img = pygame.transform.rotozoom(img, random.uniform(-10, 10), scale)
             if random.random() < 0.5:
                 prop_img = pygame.transform.flip(prop_img, True, False)
             prop_w, prop_h = prop_img.get_size()
             x = random.randint(60, self.width - 60)
-            y = ground_y + self.sand_height
+            
+            # Position props above the floor (not on the floor)
+            # Place them extremely close to the ground level
+            y = ground_y - random.randint(-133, -133)  # 20-23 pixels below the floor
             rect = prop_img.get_rect(midbottom=(x, y))
-            z = random.choices(['behind', 'infront'], weights=[70, 30])[0]
-            if z == 'behind':
-                self.props_behind.append({'img': prop_img, 'rect': rect})
-            else:
-                self.props_infront.append({'img': prop_img, 'rect': rect})
+            
+            # All props go behind the floor (Z-axis layering)
+            self.props_behind.append({'img': prop_img, 'rect': rect})
+        
         # --- Snow particle system ---
         self.snow_particles = []
         self.snow_spawn_timer = 0
@@ -5758,10 +5848,10 @@ class IcySurfaceScene(BiomeSurfaceScene):
     def render(self, surface):
         # --- Sky gradient (furthest back) ---
         surface.blit(self.sky_gradient, (0, 0))
-        # --- Mountains background ---
+        # --- Snowy mountains background (behind ground, above sky) ---
         for bg in self.bg_tiles:
             surface.blit(bg['img'], (bg['x'], bg['y']))
-        # --- Props behind player ---
+        # --- Props behind ground (snowmen and snow stones) ---
         for prop in self.props_behind:
             surface.blit(prop['img'], prop['rect'])
         # --- Snow particles (behind player, above background/props) ---
@@ -5770,8 +5860,11 @@ class IcySurfaceScene(BiomeSurfaceScene):
             snow_surf = pygame.Surface((p['size']*2, p['size']*2), pygame.SRCALPHA)
             pygame.draw.circle(snow_surf, snow_color, (p['size'], p['size']), p['size'])
             surface.blit(snow_surf, (p['x']-p['size'], p['y']-p['size']))
+        # --- Ground (walkable) - on top of props ---
+        for tile in self.ground_tiles:
+            surface.blit(tile['img'], (tile['x'], tile['y']))
         
-        # --- Rocket bottom image (behind player, in front of props) ---
+        # --- Rocket bottom image (behind player, in front of ground) ---
         if self.rocket_bottom_img:
             target_height = self.sand_top_y
             target_width = int(self.rocket_bottom_img.get_width() * (target_height / self.rocket_bottom_img.get_height()))
@@ -5780,14 +5873,8 @@ class IcySurfaceScene(BiomeSurfaceScene):
             rocket_y = self.sand_top_y - target_height
             surface.blit(scaled_img, (rocket_x, rocket_y))
         
-        # --- Ground (walkable) ---
-        for tile in self.ground_tiles:
-            surface.blit(tile['img'], (tile['x'], tile['y']))
         # --- Player ---
         self.player.render(surface)
-        # --- Props in front of player ---
-        for prop in self.props_infront:
-            surface.blit(prop['img'], prop['rect'])
         # --- Prompt ---
         if self.enter_ship_prompt and self.prompt_active:
             font = pygame.font.SysFont(None, 32)

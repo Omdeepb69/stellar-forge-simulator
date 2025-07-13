@@ -150,8 +150,8 @@ class FinalBossScene:
         self.player_idle_float_amplitude = 3
         
         # Boss state
-        self.boss_health = 100
-        self.boss_max_health = 100
+        self.boss_health = 7  # Boss requires 7 hits to defeat
+        self.boss_max_health = 7
         self.boss_pos = [self.width // 2, self.height // 2]
         self.boss_position = [self.width // 2, self.height // 2]  # Alias for compatibility
         self.boss_facing_right = False
@@ -378,8 +378,8 @@ class FinalBossScene:
             self.boss_landing = True
             self.boss_landing_timer = 0
             self.boss_phase3_start_y = self.boss_position[1]  # Current boss position
-            self.boss_health = 50  # Reset boss health for final phase
-            self.boss_max_health = 50
+            self.boss_health = 7  # Reset boss health for final phase - requires 7 hits
+            self.boss_max_health = 7
             self.boss_attack_cooldown = 2.0  # Slower attacks for melee combat
             self.boss_sword_damage = 25  # Boss sword damage
             print("[FinalBossScene] Phase 3: Final Boss Sword Duel - 1v1 Melee Battle")
@@ -420,8 +420,8 @@ class FinalBossScene:
         # Handle victory state
         if self.boss_defeated:
             self.victory_timer += dt
-            # Credits scroll for 15 seconds, then fade out
-            if self.victory_timer > 15.0:
+            # Show victory message for 3 seconds, then show credits for 10 seconds, then fade out
+            if self.victory_timer > 13.0:
                 self.fade_direction = 1  # Fade out
                 if self.fade_alpha >= 255:
                     print("[FinalBossScene] 🎉 Congratulations! You have completed the game! 🎉")
@@ -852,9 +852,9 @@ class FinalBossScene:
             dist = math.hypot(self.player_position[0] - self.boss_position[0],
                             self.player_position[1] - self.boss_position[1])
             if dist < lightsaber_range:
-                damage = 35  # Lightsaber does heavy damage to boss
+                damage = 1  # Each hit reduces boss health by 1
                 self.boss_health -= damage
-                print(f"[FinalBossScene] Boss hit by lightsaber! Damage: {damage}, Boss Health: {self.boss_health}")
+                print(f"[FinalBossScene] Boss hit by lightsaber! Boss Health: {self.boss_health}/7")
                 # Create small impact effect
                 self.create_explosion_particles(self.boss_position, particle_count=8)
         
@@ -878,9 +878,9 @@ class FinalBossScene:
             dist = math.hypot(self.player_position[0] - self.boss_position[0],
                             self.player_position[1] - self.boss_position[1])
             if dist < sword_range:
-                damage = 20
+                damage = 1  # Each hit reduces boss health by 1
                 self.boss_health -= damage
-                print(f"[FinalBossScene] Boss hit by player sword! Damage: {damage}, Boss Health: {self.boss_health}")
+                print(f"[FinalBossScene] Boss hit by player sword! Boss Health: {self.boss_health}/7")
         
         # Boss sword vs player (Phase 3)
         if self.boss_sword_swinging and self.current_phase == 3:
@@ -1052,54 +1052,38 @@ class FinalBossScene:
             surface.blit(text_surface, (self.width // 2 - text_surface.get_width() // 2, 
                                       self.height // 2 - text_surface.get_height() // 2))
         
-        # Draw victory screen with credits
+        # Draw victory screen with victory message and credits
         if self.boss_defeated:
             overlay = pygame.Surface((self.width, self.height))
             overlay.fill((0, 0, 0))
             overlay.set_alpha(180)
             surface.blit(overlay, (0, 0))
             
-            # Calculate scroll position based on victory timer
-            scroll_offset = int(self.victory_timer * 50)  # Scroll speed
-            
-            victory_font = pygame.font.SysFont(None, 72)
-            victory_text = victory_font.render("VICTORY!", True, (255, 255, 0))
-            surface.blit(victory_text, (self.width // 2 - victory_text.get_width() // 2, 
-                                      self.height // 2 - 200 - scroll_offset))
-            
-            subtitle_font = pygame.font.SysFont(None, 36)
-            subtitle_text = subtitle_font.render("You have saved the galaxy!", True, (255, 255, 255))
-            surface.blit(subtitle_text, (self.width // 2 - subtitle_text.get_width() // 2, 
-                                       self.height // 2 - 120 - scroll_offset))
-            
-            # Credits
-            credits_font = pygame.font.SysFont(None, 28)
-            credits = [
-                "🎮 STELLAR FORGE SIMULATOR 🎮",
-                "",
-                "🎯 FINAL BOSS BATTLE COMPLETED",
-                "⚔️ EPIC SWORD DUEL VICTORY",
-                "",
-                "🎨 GAME DEVELOPED BY:",
-                "   AI Assistant & Human Player",
-                "",
-                "🎵 SOUND DESIGN:",
-                "   Epic Battle Music",
-                "   Particle Effects",
-                "",
-                "🎭 SPECIAL THANKS:",
-                "   The Galaxy for inspiration",
-                "   All the alien minions",
-                "   The final boss for the challenge",
-                "",
-                "🌟 CONGRATULATIONS! 🌟",
-                "You have proven yourself worthy",
-                "of being the ultimate space warrior!",
-                "",
-                "🚀 THE END 🚀",
-                "",
-                "Press any key to exit..."
-            ]
+            # Show victory message for first 3 seconds
+            if self.victory_timer <= 3.0:
+                # Victory message
+                victory_font = pygame.font.SysFont(None, 64)
+                victory_text = victory_font.render("The evil dildo strapped alien dies", True, (255, 255, 0))
+                surface.blit(victory_text, (self.width // 2 - victory_text.get_width() // 2,
+                                          self.height // 2 - 50))
+            else:
+                # Show credits after 3 seconds
+                # Calculate scroll position based on remaining time
+                credits_timer = self.victory_timer - 3.0
+                scroll_offset = int(credits_timer * 40)  # Slower scroll speed
+                
+                # Credits
+                credits_font = pygame.font.SysFont(None, 32)
+                credits = [
+                    "made by → Bombil",
+                    "char design → Baburao & Uddv",
+                    "",
+                    "Game completed successfully!",
+                    "",
+                    "Thanks for playing!",
+                    "",
+                    "Press any key to exit..."
+                ]
             
             for i, credit_line in enumerate(credits):
                 if i * 30 - scroll_offset < self.height + 100:  # Only draw if on screen
@@ -1177,7 +1161,7 @@ class FinalBossScene:
                                                        boss_health_width, boss_health_height), 2)
             
             # Boss health text
-            boss_text = font.render(f"Boss: {self.boss_health}/{self.boss_max_health}", True, (255, 255, 255))
+            boss_text = font.render(f"Boss: {self.boss_health}/7 hits", True, (255, 255, 255))
             surface.blit(boss_text, (boss_health_x, boss_health_y - 25))
         
         # Alien count (Phase 1 and 2)
@@ -1202,7 +1186,7 @@ class FinalBossScene:
         
         elif self.current_phase == 3:
             # Phase 3: Sword duel info
-            combat_info = controls_font.render("FINAL BOSS: Sword duel! SPACE: Attack boss (20 damage), Boss sword: 25 damage", True, (255, 100, 100))
+            combat_info = controls_font.render("FINAL BOSS: Sword duel! SPACE/F: Attack boss (1 hit), Boss sword: 25 damage", True, (255, 100, 100))
             surface.blit(combat_info, (20, self.height - 50))
             
             duel_info = controls_font.render("Boss: Floats slowly, attacks at close range, faces player", True, (255, 200, 100))
@@ -2653,6 +2637,7 @@ class Rocket(CelestialBody):
         self.thrusting = False
         self.turning_left = False
         self.turning_right = False
+        self.braking = False
         self.fuel = CONFIG["rocket_initial_fuel"]
         self.max_fuel = CONFIG["rocket_initial_fuel"]
         
@@ -2943,7 +2928,7 @@ class Rocket(CelestialBody):
         self.angle %= 2 * math.pi
 
     def apply_thrust(self):
-        """Apply thrust if thrusting and has fuel."""
+        """Apply thrust if thrusting and has fuel, or apply braking if braking."""
         if self.thrusting and self.fuel > 0:
             # Thrust in the direction of the rocket's nose (forward)
             direction = np.array([math.cos(self.angle), math.sin(self.angle)])
@@ -2952,6 +2937,16 @@ class Rocket(CelestialBody):
             self.fuel -= CONFIG["fuel_consumption_rate"]
             if self.fuel < 0:
                 self.fuel = 0
+        
+        if self.braking:
+            # Apply strong braking force opposite to current velocity
+            current_speed = np.linalg.norm(self.velocity)
+            if current_speed > 0.1:  # Only brake if moving
+                # Calculate braking force opposite to velocity direction
+                brake_direction = -self.velocity / current_speed
+                brake_force = brake_direction * self.thrust * 1.5  # Stronger than thrust for quick braking
+                self.apply_force(brake_force)
+                print(f"[Rocket] Braking applied! Speed: {current_speed:.1f}")
 
     def update_trajectory(self, celestial_bodies, dt):
         """Predict and store the rocket's future trajectory points for visualization."""
@@ -4218,10 +4213,14 @@ class Game:
         self.rocket.thrusting = False
         self.rocket.turning_left = False
         self.rocket.turning_right = False
+        self.rocket.braking = False
         
         # Movement controls
         if keys[pygame.K_w] or keys[pygame.K_UP]:
             self.rocket.thrusting = True
+        
+        if keys[pygame.K_s] or keys[pygame.K_DOWN]:
+            self.rocket.braking = True
         
         if keys[pygame.K_a] or keys[pygame.K_LEFT]:
             self.rocket.turning_left = True
@@ -4351,10 +4350,22 @@ class Game:
                     if distance < body.radius + self.rocket.radius:
                         relative_vel = np.linalg.norm(self.rocket.velocity - body.velocity)
                         if self.rocket.landed_on_planet != body:
-                            if relative_vel > 30:
-                                # Crash landing
+                            # Check if this is a planet with safe biome types
+                            is_safe_planet = (isinstance(body, Planet) and 
+                                            body.biome_type in ["icy", "forest", "desert"])
+                            
+                            if not is_safe_planet:
+                                # Collision with non-safe object - apply 50 damage
                                 self.rocket.take_damage(50)
                                 self.create_explosion(self.rocket.position, 30)
+                                print(f"[Game] Rocket took 50 damage from collision with {body.name} ({type(body).__name__})")
+                            
+                            if relative_vel > 30:
+                                # Crash landing
+                                if not is_safe_planet:
+                                    # Additional damage for high-speed collision with non-safe object
+                                    self.rocket.take_damage(50)
+                                    self.create_explosion(self.rocket.position, 30)
                                 normal = (self.rocket.position - body.position) / distance
                                 self.rocket.velocity = self.rocket.velocity - 2 * np.dot(self.rocket.velocity, normal) * normal
                                 self.rocket.velocity *= 0.3
