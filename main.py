@@ -12,6 +12,807 @@ import subprocess
 import threading
 import time
 
+def get_biome_asset_folder(biome_type):
+    if biome_type in ("ice", "icy"):
+        return "icy"
+    return biome_type
+
+class CutsceneManager:
+    """Manages cutscene playback and transitions."""
+    def __init__(self, screen):
+        self.screen = screen
+        self.playing = False
+        self.video_process = None
+        self.fade_alpha = 0
+        self.fade_direction = 0
+        self.fade_timer = 0
+        self.cutscene_complete = False
+        self.boss_scene_ready = False
+        
+    def play_cutscene(self, video_path):
+        """Play a video cutscene using system video player."""
+        if not os.path.exists(video_path):
+            print(f"[CutsceneManager] Video file not found: {video_path}")
+            self.cutscene_complete = True
+            return
+            
+        self.playing = True
+        self.cutscene_complete = False
+        self.fade_alpha = 0
+        self.fade_direction = 1  # Fade in
+        
+        # Start video in a separate thread
+        def play_video():
+            try:
+                # Use system default video player
+                if sys.platform == "win32":
+                    os.startfile(video_path)
+                elif sys.platform == "darwin":  # macOS
+                    subprocess.run(["open", video_path])
+                else:  # Linux
+                    subprocess.run(["xdg-open", video_path])
+                    
+                # Wait for video to finish (estimate 10 seconds for colfin.mp4)
+                time.sleep(10)
+                self.cutscene_complete = True
+                self.playing = False
+            except Exception as e:
+                print(f"[CutsceneManager] Error playing video: {e}")
+                self.cutscene_complete = True
+                self.playing = False
+        
+        video_thread = threading.Thread(target=play_video)
+        video_thread.daemon = True
+        video_thread.start()
+    
+    def update(self, dt):
+        """Update cutscene state and transitions."""
+        if self.playing:
+            # Handle fade transitions
+            if self.fade_direction != 0:
+                self.fade_timer += dt
+                if self.fade_direction == 1:  # Fade in
+                    self.fade_alpha = min(255, int(255 * (self.fade_timer / 1.0)))
+                    if self.fade_alpha >= 255:
+                        self.fade_direction = 0
+                        self.fade_timer = 0
+                elif self.fade_direction == -1:  # Fade out
+                    self.fade_alpha = max(0, 255 - int(255 * (self.fade_timer / 1.0)))
+                    if self.fade_alpha <= 0:
+                        self.fade_direction = 0
+                        self.fade_timer = 0
+                        self.boss_scene_ready = True
+            
+            # Check if cutscene is complete
+            if self.cutscene_complete and self.fade_direction == 0:
+                self.fade_direction = -1  # Start fade out
+                self.fade_timer = 0
+    
+    def draw(self, surface):
+        """Draw cutscene overlay and fade effects."""
+        if self.playing:
+            # Draw black overlay
+            overlay = pygame.Surface(surface.get_size())
+            overlay.fill((0, 0, 0))
+            overlay.set_alpha(self.fade_alpha)
+            surface.blit(overlay, (0, 0))
+            
+            # Draw cutscene text
+            if self.fade_alpha > 0:
+                font = pygame.font.SysFont(None, 48)
+                text = font.render("Playing Cutscene...", True, (255, 255, 255))
+                text_rect = text.get_rect(center=(surface.get_width()//2, surface.get_height()//2))
+                surface.blit(text, text_rect)
+
+class FinalBossScene:
+    """Multi-phase final boss battle scene with exact asset and behavior specifications."""
+    
+    def __init__(self, game):
+        self.game = game
+        self.width = game.screen_width
+        self.height = game.screen_height
+        
+        # Environment setup
+        self.floor_y = self.height - 80  # Floor level
+        self.pillars = []
+        self.props = []
+        
+        # Phase management
+        self.current_phase = 1
+        self.phase_timer = 0
+        self.phase_transition_timer = 0
+        self.is_transitioning = False
+        self.victory = False
+        self.victory_timer = 0
+        
+        # Player state
+        self.player_health = 100
+        self.player_max_health = 100
+        self.player_pos = [self.width // 2, self.floor_y - 60]
+        self.player_position = [self.width // 2, self.floor_y - 60]  # Alias for compatibility
+        self.player_facing_right = True
+        self.player_sword_drawn = False
+        self.player_sword_swinging = False
+        self.player_sword_timer = 0
+        self.player_sword_cooldown = 0
+        self.player_sword_frame = 0
+        self.player_speed = 200
+        
+        # Enhanced jump system
+        self.player_velocity_y = 0
+        self.player_jump_force = 350  # Moderate jump force for ~1.5x player height
+        self.player_gravity = 300     # Balanced gravity for natural arc
+        self.player_is_grounded = True
+        
+        # Enhanced player animation system
+        self.player_anim_state = "idle"  # idle, draw, swing
+        self.player_anim_playing = False
+        self.player_anim_timer = 0
+        self.player_anim_fps = 12
+        self.player_idle_float_offset = 0
+        self.player_idle_float_timer = 0
+        self.player_idle_float_speed = 2.0
+        self.player_idle_float_amplitude = 3
+        
+        # Boss state
+        self.boss_health = 7  # Boss requires 7 hits to defeat
+        self.boss_max_health = 7
+        self.boss_pos = [self.width // 2, self.height // 2]
+        self.boss_position = [self.width // 2, self.height // 2]  # Alias for compatibility
+        self.boss_facing_right = False
+        self.boss_sword_swinging = False
+        self.boss_sword_timer = 0
+        self.boss_attack_timer = 0
+        self.boss_attack_cooldown = 2.0
+        self.boss_floating_offset = 0
+        self.boss_sword_frame = 0
+        self.boss_swing_animation_speed = 0.1
+        self.boss_defeated = False
+        
+        # Phase 3 transition variables
+        self.boss_landing = False
+        self.boss_landing_timer = 0
+        self.boss_landing_duration = 2.0  # 2 seconds to land
+        self.boss_phase3_start_y = self.height // 2  # Starting Y position for landing
+        self.boss_phase3_ground_y = self.floor_y - 80  # Ground level for boss
+        
+        # Combat entities
+        self.aliens = []
+        self.alien_bullets = []
+        self.boss_bullets = []
+        self.player_bullets = []
+        
+        # Particle effects
+        self.explosion_particles = []
+        
+        # Visual effects
+        self.fade_alpha = 255
+        self.fade_direction = -1  # Start with fade in
+        self.screen_shake_timer = 0
+        self.screen_shake_intensity = 0
+        
+        # Load all assets and setup environment
+        self.load_assets()
+        self.setup_environment()
+        self.start_phase(1)
+    
+    def load_assets(self):
+        """Load all boss battle assets from the specified folders."""
+        try:
+            # Boss fight environment assets
+            self.background_img = pygame.image.load("assets/boss_fight/background.png").convert_alpha()
+            self.background_img = pygame.transform.scale(self.background_img, (self.width, self.height))
+            
+            self.pillar_img = pygame.image.load("assets/boss_fight/pillar.png").convert_alpha()
+            self.pillar_img = pygame.transform.scale(self.pillar_img, (120, 300))
+            
+            self.skull_img = pygame.image.load("assets/boss_fight/skull.png").convert_alpha()
+            self.skull_img = pygame.transform.scale(self.skull_img, (40, 40))
+            
+            self.testtube_img = pygame.image.load("assets/boss_fight/testtube.png").convert_alpha()
+            self.testtube_img = pygame.transform.scale(self.testtube_img, (30, 50))
+            
+            # Alien assets
+            self.alien_img = pygame.image.load("assets/alien/alien.png").convert_alpha()
+            self.alien_img = pygame.transform.scale(self.alien_img, (60, 60))
+            
+            self.alien_orb_img = pygame.image.load("assets/alien/orb.png").convert_alpha()
+            self.alien_orb_img = pygame.transform.scale(self.alien_orb_img, (20, 20))
+            
+            # Final boss assets
+            self.boss_gun_img = pygame.image.load("assets/finalboss/bossGun.png").convert_alpha()
+            self.boss_gun_img = pygame.transform.scale(self.boss_gun_img, (120, 120))
+            
+            self.boss_orb_img = pygame.image.load("assets/finalboss/orb.png").convert_alpha()
+            self.boss_orb_img = pygame.transform.scale(self.boss_orb_img, (30, 30))
+            
+            # Boss sword swing animation frames
+            self.boss_swing_frames = []
+            for i in range(1, 5):
+                frame = pygame.image.load(f"assets/finalboss/boss_swing/bossSwordSwing{i}.png").convert_alpha()
+                frame = pygame.transform.scale(frame, (100, 100))
+                self.boss_swing_frames.append(frame)
+            
+            # Player assets
+            try:
+                self.player_idle_img = pygame.image.load("assets/player/mainCharStill.png").convert_alpha()
+            except:
+                self.player_idle_img = pygame.image.load("assets/player/idle.png").convert_alpha()
+            self.player_idle_img = pygame.transform.scale(self.player_idle_img, (50, 80))
+            
+            # Player sword animation frames - load all frames from swing folder
+            self.player_sword_frames = []
+            import os
+            swing_dir = "assets/player/swing"
+            if os.path.isdir(swing_dir):
+                files = sorted([f for f in os.listdir(swing_dir) if f.endswith(".png")])
+                for fname in files:
+                    try:
+                        frame = pygame.image.load(os.path.join(swing_dir, fname)).convert_alpha()
+                        frame = pygame.transform.scale(frame, (60, 80))
+                        self.player_sword_frames.append(frame)
+                    except Exception as e:
+                        print(f"Error loading sword frame {fname}: {e}")
+                        continue
+            
+            # If no frames loaded, create placeholders
+            if not self.player_sword_frames:
+                for i in range(4):
+                    frame = pygame.Surface((60, 80), pygame.SRCALPHA)
+                    pygame.draw.rect(frame, (255, 255, 0), (20, 20, 40, 60))
+                    self.player_sword_frames.append(frame)
+            
+            print("[FinalBossScene] All assets loaded successfully")
+            
+        except Exception as e:
+            print(f"[FinalBossScene] Error loading assets: {e}")
+            self.create_placeholder_assets()
+    
+    def create_placeholder_assets(self):
+        """Create placeholder assets if loading fails."""
+        # Background
+        self.background_img = pygame.Surface((self.width, self.height))
+        self.background_img.fill((20, 10, 30))
+        
+        # Pillar
+        self.pillar_img = pygame.Surface((120, 300))
+        self.pillar_img.fill((100, 100, 100))
+        
+        # Skull and testtube
+        self.skull_img = pygame.Surface((40, 40))
+        self.skull_img.fill((150, 150, 150))
+        
+        self.testtube_img = pygame.Surface((30, 50))
+        self.testtube_img.fill((0, 255, 255))
+        
+        # Alien
+        self.alien_img = pygame.Surface((60, 60))
+        self.alien_img.fill((0, 255, 0))
+        
+        self.alien_orb_img = pygame.Surface((20, 20))
+        self.alien_orb_img.fill((255, 255, 0))
+        
+        # Boss
+        self.boss_gun_img = pygame.Surface((120, 120))
+        self.boss_gun_img.fill((255, 0, 0))
+        
+        self.boss_orb_img = pygame.Surface((30, 30))
+        self.boss_orb_img.fill((255, 100, 0))
+        
+        # Boss swing frames
+        self.boss_swing_frames = []
+        for i in range(4):
+            frame = pygame.Surface((100, 100))
+            frame.fill((255, 50, 50))
+            self.boss_swing_frames.append(frame)
+        
+        # Player
+        self.player_idle_img = pygame.Surface((50, 80))
+        self.player_idle_img.fill((0, 255, 255))
+        
+        # Try to load the actual player sprite
+        try:
+            self.player_idle_img = pygame.image.load("assets/player/mainCharStill.png").convert_alpha()
+            self.player_idle_img = pygame.transform.scale(self.player_idle_img, (50, 80))
+        except Exception as e:
+            print(f"Could not load player sprite: {e}")
+            # Keep the placeholder
+            pass
+        
+        self.player_sword_frames = []
+        for i in range(4):
+            frame = pygame.Surface((60, 80))
+            frame.fill((255, 255, 0))
+            self.player_sword_frames.append(frame)
+    
+    def setup_environment(self):
+        """Setup the boss battle environment with props as specified."""
+        # Pillar positions (symmetrical on both sides)
+        self.pillars = [
+            (100, self.floor_y - 250),  # Left pillar
+            (self.width - 220, self.floor_y - 250)  # Right pillar
+        ]
+        
+        # Randomly scatter props on the floor
+        import random
+        self.props = []
+        
+        # Scatter skulls
+        for _ in range(4):
+            x = random.randint(150, self.width - 150)
+            y = self.floor_y - 50
+            self.props.append({"type": "skull", "pos": [x, y], "img": self.skull_img})
+        
+        # Scatter testtubes
+        for _ in range(3):
+            x = random.randint(150, self.width - 150)
+            y = self.floor_y - 60
+            self.props.append({"type": "testtube", "pos": [x, y], "img": self.testtube_img})
+    
+    def start_phase(self, phase):
+        """Start a new phase of the boss battle."""
+        self.current_phase = phase
+        self.phase_timer = 0
+        self.is_transitioning = True
+        self.phase_transition_timer = 0
+        
+        # Clear existing entities
+        self.aliens.clear()
+        self.alien_bullets.clear()
+        self.boss_bullets.clear()
+        
+        if phase == 1:
+            # Phase 1: 5 Alien Minions (Floating, Ranged)
+            self.spawn_aliens(5)
+            print("[FinalBossScene] Phase 1: 5 Alien Minions")
+            
+        elif phase == 2:
+            # Phase 2: Final Boss + 10 Alien Minions
+            self.spawn_aliens(10)
+            # Boss is stationary and always on-screen
+            self.boss_pos = [self.width // 2, self.height // 2]
+            self.boss_position = [self.width // 2, self.height // 2]  # Keep in sync
+            self.boss_health = 100
+            self.boss_max_health = 100
+            self.boss_attack_cooldown = 1.5  # Faster attacks than Phase 1
+            print("[FinalBossScene] Phase 2: Final Boss + 10 Alien Minions")
+            
+        elif phase == 3:
+            # Phase 3: Final Boss Sword Duel - 1v1 melee battle
+            # Start boss landing animation
+            self.boss_landing = True
+            self.boss_landing_timer = 0
+            self.boss_phase3_start_y = self.boss_position[1]  # Current boss position
+            self.boss_health = 7  # Reset boss health for final phase - requires 7 hits
+            self.boss_max_health = 7
+            self.boss_attack_cooldown = 2.0  # Slower attacks for melee combat
+            self.boss_sword_damage = 25  # Boss sword damage
+            print("[FinalBossScene] Phase 3: Final Boss Sword Duel - 1v1 Melee Battle")
+            print("[FinalBossScene] 🗡️ BOSS IS LANDING FOR EPIC SWORD DUEL! 🗡️")
+            print("[FinalBossScene] ⚔️ PREPARE FOR THE ULTIMATE MELEE BATTLE! ⚔️")
+    
+    def spawn_aliens(self, count):
+        """Spawn alien minions."""
+        for i in range(count):
+            x = 200 + (i * 150) % (self.width - 400)
+            y = 150 + (i * 80) % (self.height // 2)
+            alien = {
+                "pos": [x, y],
+                "health": 30,
+                "max_health": 30,
+                "facing_right": False,
+                "floating_offset": i * 0.5,
+                "attack_timer": i * 0.5,
+                "attack_cooldown": 2.0 + (i % 3) * 0.5,
+                "floating_speed": 3.0 + (i % 3) * 1.0,  # Faster, more varied movement speeds
+                # Ground attack behavior
+                "ground_attack_timer": random.uniform(3.0, 8.0),  # Random time before first ground attack
+                "ground_attack_cooldown": random.uniform(5.0, 12.0),  # Random cooldown between attacks
+                "is_ground_attacking": False,
+                "ground_attack_duration": 0,
+                "ground_attack_speed": 300  # Speed when diving to ground
+            }
+            self.aliens.append(alien)
+    
+    def update(self, dt, keys):
+        """Update boss battle logic."""
+        # Update fade effect
+        if self.fade_direction == -1:  # Fade in
+            self.fade_alpha = max(0, self.fade_alpha - 255 * dt)
+        elif self.fade_direction == 1:  # Fade out
+            self.fade_alpha = min(255, self.fade_alpha + 255 * dt)
+        
+        # Handle victory state
+        if self.boss_defeated:
+            self.victory_timer += dt
+            # Show victory message for 3 seconds, then show credits for 10 seconds, then fade out
+            if self.victory_timer > 13.0:
+                self.fade_direction = 1  # Fade out
+                if self.fade_alpha >= 255:
+                    print("[FinalBossScene] 🎉 Congratulations! You have completed the game! 🎉")
+                    print("[FinalBossScene] 🏆 You are the ultimate space warrior! 🏆")
+                    self.game.running = False
+            return
+        
+        # Handle phase transitions
+        if self.is_transitioning:
+            self.phase_transition_timer += dt
+            if self.phase_transition_timer > 1.0:  # 1 second transition
+                self.is_transitioning = False
+                self.phase_transition_timer = 0
+        
+        # Update phase timer
+        self.phase_timer += dt
+        
+        # Check phase completion conditions
+        if self.current_phase == 1 and len(self.aliens) == 0:
+            self.start_phase(2)
+        elif self.current_phase == 2 and len(self.aliens) == 0:  # All aliens killed, not boss
+            self.start_phase(3)
+        elif self.current_phase == 3 and self.boss_health <= 0:
+            # Boss defeated - create explosion and start victory sequence
+            if not self.boss_defeated:  # Only trigger once
+                self.create_explosion_particles(self.boss_position, particle_count=30)  # Big explosion
+                self.screen_shake_timer = 1.0  # Screen shake
+                self.screen_shake_intensity = 15
+                print("[FinalBossScene] 🎉 BOSS DEFEATED! EPIC VICTORY! 🎉")
+                print("[FinalBossScene] 💥 BOSS EXPLODES INTO PARTICLES! 💥")
+            self.boss_defeated = True
+            self.victory_timer = 0
+        
+        # Update player
+        self.update_player(dt, keys)
+        
+        # Update boss
+        self.update_boss(dt)
+        
+        # Update aliens
+        self.update_aliens(dt)
+        
+        # Update projectiles
+        self.update_projectiles(dt)
+        
+        # Update explosion particles
+        self.update_explosion_particles(dt)
+        
+        # Update screen shake
+        if self.screen_shake_timer > 0:
+            self.screen_shake_timer -= dt
+            if self.screen_shake_timer <= 0:
+                self.screen_shake_intensity = 0
+        
+        # Check collisions
+        self.check_collisions()
+    
+    def update_player(self, dt, keys):
+        """Update player movement and combat with enhanced animation system."""
+        # Track if player is moving
+        moving = False
+        
+        # Player movement (Arrow keys only as requested) - No flying, only jumping
+        if keys[pygame.K_LEFT]:
+            self.player_position[0] -= self.player_speed * dt
+            self.player_pos[0] = self.player_position[0]  # Keep in sync
+            self.player_facing_right = False
+            moving = True
+        if keys[pygame.K_RIGHT]:
+            self.player_position[0] += self.player_speed * dt
+            self.player_pos[0] = self.player_position[0]  # Keep in sync
+            self.player_facing_right = True
+            moving = True
+        
+        # Enhanced jump system
+        if keys[pygame.K_UP] and self.player_is_grounded:
+            # Jump only when grounded
+            self.player_velocity_y = -self.player_jump_force
+            self.player_is_grounded = False
+            moving = True
+            print("[FinalBossScene] Player jumped! Velocity: {:.1f}".format(self.player_velocity_y))
+        
+        # Apply gravity and update vertical position
+        if not self.player_is_grounded:
+            self.player_velocity_y += self.player_gravity * dt
+            self.player_position[1] += self.player_velocity_y * dt
+            self.player_pos[1] = self.player_position[1]  # Keep in sync
+        
+        # Check if player has landed
+        if self.player_position[1] >= self.floor_y - 60:
+            self.player_position[1] = self.floor_y - 60
+            self.player_pos[1] = self.player_position[1]  # Keep in sync
+            self.player_velocity_y = 0
+            self.player_is_grounded = True
+        
+        # Keep player on screen horizontally
+        self.player_position[0] = max(50, min(self.width - 50, self.player_position[0]))
+        self.player_pos[0] = self.player_position[0]  # Keep in sync
+        
+        # Idle floating animation (when not moving and not in combat animation)
+        if not moving and not self.player_anim_playing:
+            self.player_idle_float_timer += dt
+            self.player_idle_float_offset = self.player_idle_float_amplitude * math.sin(self.player_idle_float_timer * self.player_idle_float_speed)
+        else:
+            self.player_idle_float_offset = 0
+        
+        # Enhanced sword combat system
+        if not self.player_anim_playing:  # Only allow new animations when not already playing
+            if keys[pygame.K_f]:  # Draw sword (lightsaber)
+                self.player_anim_state = "draw"
+                self.player_anim_playing = True
+                self.player_anim_timer = 0
+                self.player_sword_frame = 0
+                self.player_sword_drawn = True
+                print("[FinalBossScene] Lightsaber activated!")
+            
+            elif keys[pygame.K_SPACE] and self.player_sword_drawn and self.player_sword_cooldown <= 0:  # Swing sword
+                self.player_anim_state = "swing"
+                self.player_anim_playing = True
+                self.player_anim_timer = 0
+                self.player_sword_frame = 0
+                self.player_sword_cooldown = 0.5
+                self.player_sword_swinging = True
+                print("[FinalBossScene] Sword swing!")
+        
+        # Update animation system
+        if self.player_anim_playing:
+            self.player_anim_timer += dt
+            if self.player_anim_timer >= 1.0 / self.player_anim_fps:
+                self.player_anim_timer = 0
+                self.player_sword_frame += 1
+                
+                # Check if animation is complete
+                if self.player_sword_frame >= len(self.player_sword_frames):
+                    self.player_anim_playing = False
+                    self.player_anim_state = "idle"
+                    self.player_sword_frame = 0
+                    self.player_sword_swinging = False
+        
+        # Update sword cooldown
+        if self.player_sword_cooldown > 0:
+            self.player_sword_cooldown -= dt
+    
+    def update_boss(self, dt):
+        """Update boss AI and behavior."""
+        # Boss floating animation
+        self.boss_floating_offset += dt * 2
+        
+        if self.current_phase == 2:
+            # Phase 2: Gun boss - stationary and always on-screen
+            # Boss stays in center, only slight floating animation
+            self.boss_position[1] = self.height // 2 + 20 * math.sin(self.boss_floating_offset * 0.5)
+            self.boss_pos[1] = self.boss_position[1]  # Keep in sync
+            self.boss_attack_timer += dt
+            
+            if self.boss_attack_timer >= self.boss_attack_cooldown:
+                self.boss_attack_timer = 0
+                self.boss_shoot_orb()
+                
+        elif self.current_phase == 3:
+            # Phase 3: Sword boss - 1v1 melee duel
+            if self.boss_landing:
+                # Boss landing animation
+                self.boss_landing_timer += dt
+                progress = min(1.0, self.boss_landing_timer / self.boss_landing_duration)
+                
+                # Smooth landing animation with easing
+                ease_progress = 1 - (1 - progress) ** 2  # Ease-out curve
+                current_y = self.boss_phase3_start_y + (self.boss_phase3_ground_y - self.boss_phase3_start_y) * ease_progress
+                
+                self.boss_position[1] = current_y
+                self.boss_pos[1] = self.boss_position[1]  # Keep in sync
+                
+                if progress >= 1.0:
+                    self.boss_landing = False
+                    print("[FinalBossScene] 🗡️ BOSS HAS LANDED! THE DUEL BEGINS! 🗡️")
+            else:
+                # Phase 3: Normal melee combat after landing
+                # Floating animation (slow hover up and down) - reduced amplitude for grounded boss
+                self.boss_position[1] = self.boss_phase3_ground_y + 15 * math.sin(self.boss_floating_offset * 0.8)
+                self.boss_pos[1] = self.boss_position[1]  # Keep in sync
+                
+                # Move towards player for melee combat
+                dx = self.player_position[0] - self.boss_position[0]
+                if abs(dx) > 80:  # Keep optimal melee distance
+                    if dx > 0:
+                        self.boss_position[0] += 120 * dt  # Slightly faster movement
+                        self.boss_pos[0] = self.boss_position[0]  # Keep in sync
+                        self.boss_facing_right = True
+                    else:
+                        self.boss_position[0] -= 120 * dt
+                        self.boss_pos[0] = self.boss_position[0]  # Keep in sync
+                        self.boss_facing_right = False
+                
+                # Sword attack at close range
+                self.boss_attack_timer += dt
+                if self.boss_attack_timer >= self.boss_attack_cooldown:
+                    dist = math.hypot(self.player_position[0] - self.boss_position[0],
+                                    self.player_position[1] - self.boss_position[1])
+                    if dist < 120:  # Close enough for melee attack
+                        self.boss_sword_swinging = True
+                        self.boss_sword_timer = 0
+                        self.boss_attack_timer = 0
+                        self.boss_sword_frame = 0
+                        print(f"[FinalBossScene] Boss sword attack! Distance: {dist:.1f}")
+        
+        # Update boss sword swing animation
+        if self.boss_sword_swinging:
+            self.boss_sword_timer += dt
+            if self.boss_sword_timer >= 0.1:  # 10fps animation
+                self.boss_sword_timer = 0
+                self.boss_sword_frame += 1
+                if self.boss_sword_frame >= 4:
+                    self.boss_sword_swinging = False
+                    self.boss_sword_frame = 0
+    
+    def boss_shoot_orb(self):
+        """Boss shoots a large, dangerous orb at the player."""
+        dx = self.player_position[0] - self.boss_position[0]
+        dy = self.player_position[1] - self.boss_position[1]
+        dist = math.hypot(dx, dy)
+        
+        if dist > 0:
+            # Boss orbs are faster and more dangerous
+            speed = 250 if self.current_phase == 2 else 200
+            vel_x = (dx / dist) * speed
+            vel_y = (dy / dist) * speed
+            
+            self.boss_bullets.append({
+                "pos": self.boss_position.copy(),
+                "vel": [vel_x, vel_y],
+                "timer": 0,
+                "damage": 25 if self.current_phase == 2 else 20  # More damage in Phase 2
+            })
+            
+            print(f"[FinalBossScene] Boss fired orb! Speed: {speed}, Damage: {25 if self.current_phase == 2 else 20}")
+    
+    def update_aliens(self, dt):
+        """Update alien minions."""
+        for alien in self.aliens[:]:
+            # Ground attack behavior
+            if not alien["is_ground_attacking"]:
+                # Normal floating behavior
+                alien["ground_attack_timer"] += dt
+                if alien["ground_attack_timer"] >= alien["ground_attack_cooldown"]:
+                    # Start ground attack
+                    alien["is_ground_attacking"] = True
+                    alien["ground_attack_duration"] = 0
+                    alien["ground_attack_timer"] = 0
+                    alien["ground_attack_cooldown"] = random.uniform(5.0, 12.0)  # Reset for next attack
+                    print(f"[FinalBossScene] Alien {id(alien)} starting ground attack!")
+                
+                # Enhanced floating motion - aliens move up and down quickly
+                alien["floating_offset"] += dt * alien["floating_speed"] * 3  # 3x faster movement
+                # More dramatic up and down movement
+                base_y = 150
+                amplitude = 80  # Increased amplitude for more dramatic movement
+                alien["pos"][1] = base_y + amplitude * math.sin(alien["floating_offset"])
+            else:
+                # Ground attack behavior
+                alien["ground_attack_duration"] += dt
+                
+                if alien["ground_attack_duration"] < 1.0:  # Diving down phase
+                    # Dive down to ground level
+                    target_y = self.floor_y - 40  # Ground level
+                    current_y = alien["pos"][1]
+                    if current_y <= target_y:
+                        alien["pos"][1] = target_y
+                    else:
+                        alien["pos"][1] += alien["ground_attack_speed"] * dt  # Move down
+                
+                elif alien["ground_attack_duration"] < 2.0:  # On ground phase
+                    # Stay on ground for a moment
+                    alien["pos"][1] = self.floor_y - 40
+                
+                elif alien["ground_attack_duration"] < 3.0:  # Flying back up phase
+                    # Fly back up quickly
+                    alien["pos"][1] -= alien["ground_attack_speed"] * 1.5 * dt
+                
+                else:  # End ground attack
+                    alien["is_ground_attacking"] = False
+                    alien["ground_attack_duration"] = 0
+                    print(f"[FinalBossScene] Alien {id(alien)} finished ground attack!")
+            
+            # Face player
+            dx = self.player_position[0] - alien["pos"][0]
+            alien["facing_right"] = dx > 0
+            
+            # Attack (only when not ground attacking)
+            if not alien["is_ground_attacking"]:
+                alien["attack_timer"] += dt
+                if alien["attack_timer"] >= alien["attack_cooldown"]:
+                    alien["attack_timer"] = 0
+                    self.alien_shoot_orb(alien)
+    
+    def alien_shoot_orb(self, alien):
+        """Alien shoots an orb at the player."""
+        dx = self.player_position[0] - alien["pos"][0]
+        dy = self.player_position[1] - alien["pos"][1]
+        dist = math.hypot(dx, dy)
+        
+        if dist > 0:
+            speed = 150
+            vel_x = (dx / dist) * speed
+            vel_y = (dy / dist) * speed
+            
+            self.alien_bullets.append({
+                "pos": alien["pos"].copy(),
+                "vel": [vel_x, vel_y],
+                "timer": 0
+            })
+    
+    def update_projectiles(self, dt):
+        """Update all projectiles."""
+        # Update alien bullets
+        for bullet in self.alien_bullets[:]:
+            bullet["pos"][0] += bullet["vel"][0] * dt
+            bullet["pos"][1] += bullet["vel"][1] * dt
+            bullet["timer"] += dt
+            
+            if bullet["timer"] > 3.0 or (bullet["pos"][0] < 0 or bullet["pos"][0] > self.width or
+                                        bullet["pos"][1] < 0 or bullet["pos"][1] > self.height):
+                self.alien_bullets.remove(bullet)
+        
+        # Update boss bullets
+        for bullet in self.boss_bullets[:]:
+            bullet["pos"][0] += bullet["vel"][0] * dt
+            bullet["pos"][1] += bullet["vel"][1] * dt
+            bullet["timer"] += dt
+            
+            if bullet["timer"] > 4.0 or (bullet["pos"][0] < 0 or bullet["pos"][0] > self.width or
+                                        bullet["pos"][1] < 0 or bullet["pos"][1] > self.height):
+                self.boss_bullets.remove(bullet)
+    
+    def create_explosion_particles(self, position, particle_count=15):
+        """Create explosion particle effect at the given position."""
+        print(f"[FinalBossScene] Creating explosion at {position} with {particle_count} particles!")
+        
+        # Add screen shake effect
+        self.screen_shake_timer = 0.2
+        self.screen_shake_intensity = 5
+        
+        for _ in range(particle_count):
+            # Random velocity in all directions
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(50, 200)
+            velocity = [math.cos(angle) * speed, math.sin(angle) * speed]
+            
+            # Random colors for explosion effect (fire and energy colors)
+            colors = [
+                (255, 100, 50),   # Orange-red
+                (255, 200, 50),   # Yellow-orange
+                (255, 150, 0),    # Orange
+                (255, 255, 100),  # Bright yellow
+                (255, 50, 50),    # Red
+                (255, 255, 200)   # Light yellow
+            ]
+            color = random.choice(colors)
+            
+            # Random particle properties
+            lifetime = random.uniform(0.5, 1.5)
+            size = random.uniform(2, 8)  # Slightly larger particles
+            
+            particle = {
+                "pos": position.copy(),
+                "vel": velocity,
+                "color": color,
+                "lifetime": lifetime,
+                "max_lifetime": lifetime,
+                "size": size,
+                "alpha": 255
+            }
+            self.explosion_particles.append(particle)
+    
+    def update_explosion_particles(self, dt):
+        """Update explosion particle effects."""
+        for particle in self.explosion_particles[:]:
+            particle["pos"][0] += particle["vel"][0] * dt
+            particle["pos"][1] += particle["vel"][1] * dt
+            particle["lifetime"] -= dt
+            particle["alpha"] = int(255 * (particle["lifetime"] / particle["max_lifetime"]))
+            
+            # Remove dead particles
+            if particle["lifetime"] <= 0:
+                self.explosion_particles.remove(particle)
+
 class CutsceneManager:
     """Manages cutscene playback and transitions."""
     def __init__(self, screen):
@@ -4837,46 +5638,75 @@ class Game:
         planet, rocket_state, crash = self.next_scene if self.next_scene else (None, None, False)
         surface_x = 400 if not crash else 600
         surface_y = 480
-        if rocket_state is None:
-            # Use rocket state from saved space state if available
-            if self.saved_space_state:
-                rocket_state = {
-                    "fuel": self.saved_space_state['rocket'].fuel,
-                    "health": self.saved_space_state['rocket'].health,
-                    "max_health": self.saved_space_state['rocket'].max_health,
-                    "shield": self.saved_space_state['rocket'].shield,
-                    "max_shield": self.saved_space_state['rocket'].max_shield,
-                    "credits": self.saved_space_state['rocket'].credits,
-                    "position": planet.position.copy() if planet else np.zeros(2),
-                    "velocity": np.zeros(2),
-                    "engine_level": self.saved_space_state['rocket'].engine_level,
-                    "weapon_level": self.saved_space_state['rocket'].weapon_level,
-                    "scanner_level": self.saved_space_state['rocket'].scanner_level,
-                }
-            else:
-                rocket_state = {
-                    "fuel": self.rocket.fuel,
-                    "health": self.rocket.health,
-                    "max_health": self.rocket.max_health,
-                    "shield": self.rocket.shield,
-                    "max_shield": self.rocket.max_shield,
-                    "credits": self.rocket.credits,
-                    "position": planet.position.copy() if planet else np.zeros(2),
-                    "velocity": np.zeros(2),
-                    "engine_level": self.rocket.engine_level,
-                    "weapon_level": self.rocket.weapon_level,
-                    "scanner_level": self.rocket.scanner_level,
-                }
         
-        # Use biome-specific surface scenes
-        if getattr(planet, 'biome_type', None) == 'desert':
-            self.planet_surface_scene = DesertSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
-        elif getattr(planet, 'biome_type', None) == 'forest':
-            self.planet_surface_scene = ForestSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
-        elif getattr(planet, 'biome_type', None) == 'icy':
-            self.planet_surface_scene = IcySurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
+        # Check if we have a saved surface state to restore (returning from stronghold)
+        if hasattr(self, 'saved_surface_state') and self.saved_surface_state:
+            # Restore from saved state - this will properly reload assets
+            saved_state = self.saved_surface_state
+            planet = saved_state['planet']
+            rocket_state = saved_state['rocket_state']
+            player_pos = saved_state['player_pos']
+            biome_type = saved_state['biome_type']
+            scene_type = saved_state['scene_type']
+            
+            # Create the appropriate surface scene with saved state
+            if scene_type == 'DesertSurfaceScene' or biome_type == 'desert':
+                self.planet_surface_scene = DesertSurfaceScene(self, planet, rocket_state, spawn_player_pos=player_pos)
+            elif scene_type == 'ForestSurfaceScene' or biome_type == 'forest':
+                self.planet_surface_scene = ForestSurfaceScene(self, planet, rocket_state, spawn_player_pos=player_pos)
+            elif scene_type == 'IcySurfaceScene' or biome_type == 'icy':
+                self.planet_surface_scene = IcySurfaceScene(self, planet, rocket_state, spawn_player_pos=player_pos)
+            else:
+                self.planet_surface_scene = BiomeSurfaceScene(self, planet, rocket_state, spawn_player_pos=player_pos)
+            
+            # Restore player position
+            self.planet_surface_scene.player.x = player_pos[0]
+            self.planet_surface_scene.player.y = player_pos[1]
+            
+            delattr(self, 'saved_surface_state')  # Clear the saved state
+            print(f"[Game] Restored surface scene state for {scene_type} with assets reloaded")
         else:
-            self.planet_surface_scene = BiomeSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
+            # Create a new surface scene (landing from space)
+            if rocket_state is None:
+                # Use rocket state from saved space state if available
+                if self.saved_space_state:
+                    rocket_state = {
+                        "fuel": self.saved_space_state['rocket'].fuel,
+                        "health": self.saved_space_state['rocket'].health,
+                        "max_health": self.saved_space_state['rocket'].max_health,
+                        "shield": self.saved_space_state['rocket'].shield,
+                        "max_shield": self.saved_space_state['rocket'].max_shield,
+                        "credits": self.saved_space_state['rocket'].credits,
+                        "position": planet.position.copy() if planet else np.zeros(2),
+                        "velocity": np.zeros(2),
+                        "engine_level": self.saved_space_state['rocket'].engine_level,
+                        "weapon_level": self.saved_space_state['rocket'].weapon_level,
+                        "scanner_level": self.saved_space_state['rocket'].scanner_level,
+                    }
+                else:
+                    rocket_state = {
+                        "fuel": self.rocket.fuel,
+                        "health": self.rocket.health,
+                        "max_health": self.rocket.max_health,
+                        "shield": self.rocket.shield,
+                        "max_shield": self.rocket.max_shield,
+                        "credits": self.rocket.credits,
+                        "position": planet.position.copy() if planet else np.zeros(2),
+                        "velocity": np.zeros(2),
+                        "engine_level": self.rocket.engine_level,
+                        "weapon_level": self.rocket.weapon_level,
+                        "scanner_level": self.rocket.scanner_level,
+                    }
+            
+            # Use biome-specific surface scenes
+            if getattr(planet, 'biome_type', None) == 'desert':
+                self.planet_surface_scene = DesertSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
+            elif getattr(planet, 'biome_type', None) == 'forest':
+                self.planet_surface_scene = ForestSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
+            elif getattr(planet, 'biome_type', None) == 'icy':
+                self.planet_surface_scene = IcySurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
+            else:
+                self.planet_surface_scene = BiomeSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
         
         self.scene = "planet_surface"
         self.camera.set_target(None)
@@ -4888,6 +5718,18 @@ class Game:
 
     def start_stronghold_scene(self, planet):
         """Start a stronghold scene for the given planet."""
+        # Save essential surface scene state before entering stronghold
+        if hasattr(self, 'planet_surface_scene') and self.planet_surface_scene:
+            # Save only the essential state that can be safely copied
+            self.saved_surface_state = {
+                'planet': self.planet_surface_scene.planet,
+                'rocket_state': self.planet_surface_scene.rocket_state.copy(),
+                'player_pos': [self.planet_surface_scene.player.x, self.planet_surface_scene.player.y],
+                'biome_type': getattr(planet, 'biome_type', None),
+                'scene_type': type(self.planet_surface_scene).__name__
+            }
+            print(f"[Game] Saved surface scene state for {self.saved_surface_state['scene_type']}")
+        
         # Start fade-out transition
         self.fade_alpha = 0
         self.fade_direction = 1  # Fade out
@@ -5718,64 +6560,86 @@ class ForestSurfaceScene(BiomeSurfaceScene):
 # if getattr(planet, 'biome_type', None) == 'forest':
 #     self.planet_surface_scene = ForestSurfaceScene(self, planet, rocket_state, spawn_player_pos=(surface_x, surface_y))
 
+
 class IcySurfaceScene(BiomeSurfaceScene):
-    def load_assets(self):
-        # Call parent to load rocket bottom image
-        super().load_assets()
+    def __init__(self, game, planet, rocket_state, spawn_player_pos=(400, 480)):
+        # Call parent constructor first to set up basic structure
+        super().__init__(game, planet, rocket_state, spawn_player_pos)
         
+        # Override with icy-specific setup
+        self.snow_particles = []
+        self.snow_spawn_timer = 0
+        
+        # Reload assets and setup for icy biome
+        self.load_assets()
+        self.generate_terrain_and_props()
+        self.setup_portal()
+
+    def load_assets(self):
+        super().load_assets()
         import os
-        self.asset_dir = os.path.join("assets", "icy")
-        # Ground
+        self.asset_dir = os.path.join("assets", get_biome_asset_folder(self.planet.biome_type))
+        
+        # Load ice ground texture
         try:
             self.ice_img = pygame.image.load(os.path.join(self.asset_dir, "ice.png")).convert_alpha()
-        except Exception:
+            print(f"[IcySurfaceScene] Loaded ice.png successfully")
+        except Exception as e:
+            print(f"[IcySurfaceScene] Failed to load ice.png: {e}")
             self.ice_img = pygame.Surface((100, 100))
             self.ice_img.fill((180, 220, 255))
-        # Background
+        
+        # Load background mountains
         try:
             self.bg_img = pygame.image.load(os.path.join(self.asset_dir, "snowyMountains.png")).convert_alpha()
-        except Exception:
+            print(f"[IcySurfaceScene] Loaded snowyMountains.png successfully")
+        except Exception as e:
+            print(f"[IcySurfaceScene] Failed to load snowyMountains.png: {e}")
             self.bg_img = pygame.Surface((200, 100))
             self.bg_img.fill((180, 200, 220))
-        # Props
+        
+        # Load prop images
         self.prop_imgs = []
-        for name in ["snowman.png", "snowStone1.png", "snowStone2.png", "snowStone3.png"]:
+        prop_names = ["snowman.png", "snowman.png", "snowman.png", "snowStone1.png", "snowStone2.png", "snowStone3.png"]
+        for name in prop_names:
             try:
                 img = pygame.image.load(os.path.join(self.asset_dir, name)).convert_alpha()
-            except Exception:
+                print(f"[IcySurfaceScene] Loaded {name} successfully")
+            except Exception as e:
+                print(f"[IcySurfaceScene] Failed to load {name}: {e}")
                 img = pygame.Surface((32, 48))
                 img.fill((220, 220, 220))
             self.prop_imgs.append(img)
+        
+        print(f"[IcySurfaceScene] Asset loading complete. Loaded {len(self.prop_imgs)} prop images")
     def generate_terrain_and_props(self):
+        print(f"[IcySurfaceScene] Generating terrain and props...")
+        
         self.sand_top_y = int(self.height * 0.6)
         self.sand_height = self.height - self.sand_top_y
-        # --- Ground tiling ---
+        
+        # Generate ground tiles
         ground_tile_w = self.ice_img.get_width()
         ground_scaled = pygame.transform.scale(self.ice_img, (ground_tile_w, self.sand_height))
         self.ground_tiles = []
         for i in range((self.width // ground_tile_w) + 3):
             self.ground_tiles.append({'img': ground_scaled, 'x': i * ground_tile_w, 'y': self.sand_top_y})
+        print(f"[IcySurfaceScene] Generated {len(self.ground_tiles)} ground tiles")
         
-        # --- Background scaling and tiling ---
-        # Scale background to cover the full area above the floor
-        bg_area_height = self.sand_top_y  # Height of area above floor
+        # Generate background tiles
+        bg_area_height = self.sand_top_y
         bg_original_w = self.bg_img.get_width()
         bg_original_h = self.bg_img.get_height()
-        
-        # Scale background to fit the area above floor while maintaining aspect ratio
         scale_factor = bg_area_height / bg_original_h
         bg_scaled_w = int(bg_original_w * scale_factor)
         bg_scaled_h = bg_area_height
-        
-        # Create scaled background image
         bg_scaled = pygame.transform.scale(self.bg_img, (bg_scaled_w, bg_scaled_h))
-        
-        # Tile the scaled background horizontally
         self.bg_tiles = []
         for i in range((self.width // bg_scaled_w) + 3):
             self.bg_tiles.append({'img': bg_scaled, 'x': i * bg_scaled_w, 'y': 130})
+        print(f"[IcySurfaceScene] Generated {len(self.bg_tiles)} background tiles")
         
-        # --- Sky gradient ---
+        # Generate sky gradient
         self.sky_gradient = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
         for y in range(self.height):
             t = y / self.height
@@ -5784,12 +6648,12 @@ class IcySurfaceScene(BiomeSurfaceScene):
             b = int(255 * (1-t) + 255 * t)
             a = 255
             pygame.draw.line(self.sky_gradient, (r, g, b, a), (0, y), (self.width, y))
+        print(f"[IcySurfaceScene] Generated sky gradient")
         
-        # --- Prop placement with Z-layering ---
+        # Generate props
         self.props_behind = []
         self.props_infront = []
         ground_y = self.sand_top_y
-        
         for i in range(16):
             img = random.choice(self.prop_imgs)
             scale = random.uniform(0.7, 1.2)
@@ -5798,26 +6662,32 @@ class IcySurfaceScene(BiomeSurfaceScene):
                 prop_img = pygame.transform.flip(prop_img, True, False)
             prop_w, prop_h = prop_img.get_size()
             x = random.randint(60, self.width - 60)
-            
-            # Position props above the floor (not on the floor)
-            # Place them extremely close to the ground level
-            y = ground_y - random.randint(-133, -133)  # 20-23 pixels below the floor
+            y = ground_y - random.randint(-133, -133)
             rect = prop_img.get_rect(midbottom=(x, y))
-            
-            # All props go behind the floor (Z-axis layering)
             self.props_behind.append({'img': prop_img, 'rect': rect})
+        print(f"[IcySurfaceScene] Generated {len(self.props_behind)} props")
         
-        # --- Snow particle system ---
+        # Initialize snow particles
         self.snow_particles = []
         self.snow_spawn_timer = 0
+        
+        # Portal system will be set up by setup_portal()
+        print(f"[IcySurfaceScene] Terrain and props generation complete")
+    def setup_portal(self):
+        if self.planet.biome_type not in self.game.collected_items:
+            portal_x = self.ship_pos[0] + 200
+            portal_y = self.sand_top_y + 20
+            self.portal = Portal([portal_x, portal_y], self.planet.biome_type)
+            print(f"[IcySurfaceScene] Portal created at ({portal_x}, {portal_y})")
+        else:
+            self.portal = None
+            print(f"[IcySurfaceScene] No portal - item already collected")
     def update(self, dt, keys):
         self.player.update(dt, keys)
-        # Snow particle logic
         self.snow_spawn_timer += dt
-        spawn_rate = 0.02  # seconds per flake
+        spawn_rate = 0.02
         while self.snow_spawn_timer > spawn_rate:
             self.snow_spawn_timer -= spawn_rate
-            # Spawn a new snow particle
             x = random.randint(0, self.width)
             y = 0
             speed = random.uniform(40, 100)
@@ -5825,12 +6695,23 @@ class IcySurfaceScene(BiomeSurfaceScene):
             size = random.randint(2, 5)
             alpha = random.randint(100, 200)
             self.snow_particles.append({'x': x, 'y': y, 'speed': speed, 'drift': drift, 'size': size, 'alpha': alpha})
-        # Update snow particles
         for p in self.snow_particles:
             p['y'] += p['speed'] * dt
             p['x'] += p['drift'] * dt
         self.snow_particles = [p for p in self.snow_particles if p['y'] < self.height + 10]
-        # Ship prompt logic
+        # --- Portal update and interaction logic ---
+        self.portal_prompt = False
+        self.portal_prompt_active = False
+        if self.portal:
+            self.portal.update(dt)
+            px, py = self.player.x, self.player.y
+            dist = math.hypot(px - self.portal.position[0], py - self.portal.position[1])
+            if dist < 80:
+                self.portal_prompt = True
+                self.portal_prompt_active = True
+                if keys[pygame.K_y] and not self.transitioning:
+                    self.transitioning = True
+                    self.game.start_stronghold_scene(self.planet)
         dist = abs(self.player.x - self.ship_pos[0])
         if dist < 60:
             self.enter_ship_prompt = True
@@ -5846,25 +6727,61 @@ class IcySurfaceScene(BiomeSurfaceScene):
             self.transitioning = True
             self.game.exit_planet_surface_scene(self.planet, self.rocket_state)
     def render(self, surface):
-        # --- Sky gradient (furthest back) ---
-        surface.blit(self.sky_gradient, (0, 0))
-        # --- Snowy mountains background (behind ground, above sky) ---
-        for bg in self.bg_tiles:
-            surface.blit(bg['img'], (bg['x'], bg['y']))
-        # --- Props behind ground (snowmen and snow stones) ---
-        for prop in self.props_behind:
-            surface.blit(prop['img'], prop['rect'])
-        # --- Snow particles (behind player, above background/props) ---
-        for p in self.snow_particles:
-            snow_color = (255, 255, 255, p['alpha'])
-            snow_surf = pygame.Surface((p['size']*2, p['size']*2), pygame.SRCALPHA)
-            pygame.draw.circle(snow_surf, snow_color, (p['size'], p['size']), p['size'])
-            surface.blit(snow_surf, (p['x']-p['size'], p['y']-p['size']))
-        # --- Ground (walkable) - on top of props ---
-        for tile in self.ground_tiles:
-            surface.blit(tile['img'], (tile['x'], tile['y']))
+        # Simple fallback render to ensure something shows up
+        print(f"[IcySurfaceScene] Rendering - Assets check:")
+        print(f"  - sky_gradient: {hasattr(self, 'sky_gradient')}")
+        print(f"  - bg_tiles: {hasattr(self, 'bg_tiles')} (count: {len(self.bg_tiles) if hasattr(self, 'bg_tiles') else 0})")
+        print(f"  - ground_tiles: {hasattr(self, 'ground_tiles')} (count: {len(self.ground_tiles) if hasattr(self, 'ground_tiles') else 0})")
+        print(f"  - props_behind: {hasattr(self, 'props_behind')} (count: {len(self.props_behind) if hasattr(self, 'props_behind') else 0})")
         
-        # --- Rocket bottom image (behind player, in front of ground) ---
+        # Always draw a basic sky first
+        if hasattr(self, 'sky_gradient') and self.sky_gradient is not None:
+            surface.blit(self.sky_gradient, (0, 0))
+        else:
+            # Fallback sky gradient
+            for y in range(self.height):
+                t = y / self.height
+                r = int(180 * (1-t) + 220 * t)
+                g = int(200 * (1-t) + 240 * t)
+                b = int(255 * (1-t) + 255 * t)
+                pygame.draw.line(surface, (r, g, b), (0, y), (self.width, y))
+        
+        # Draw background tiles if available
+        if hasattr(self, 'bg_tiles') and self.bg_tiles:
+            for bg in self.bg_tiles:
+                surface.blit(bg['img'], (bg['x'], bg['y']))
+        else:
+            # Fallback background
+            pygame.draw.rect(surface, (180, 200, 220), (0, 0, self.width, self.sand_top_y))
+        
+        # Draw props if available
+        if hasattr(self, 'props_behind') and self.props_behind:
+            for prop in self.props_behind:
+                surface.blit(prop['img'], prop['rect'])
+        else:
+            # Fallback props
+            for i in range(5):
+                x = 200 + i * 300
+                y = self.sand_top_y - 50
+                pygame.draw.circle(surface, (220, 220, 220), (x, y), 20)
+        
+        # Snow particles
+        for p in self.snow_particles:
+            if p['y'] < self.height - 50:
+                snow_color = (255, 255, 255, p['alpha'])
+                snow_surf = pygame.Surface((p['size']*2, p['size']*2), pygame.SRCALPHA)
+                pygame.draw.circle(snow_surf, snow_color, (p['size'], p['size']), p['size'])
+                surface.blit(snow_surf, (p['x']-p['size'], p['y']-p['size']))
+        
+        # Draw ground tiles if available
+        if hasattr(self, 'ground_tiles') and self.ground_tiles:
+            for tile in self.ground_tiles:
+                surface.blit(tile['img'], (tile['x'], tile['y']))
+        else:
+            # Fallback ground
+            pygame.draw.rect(surface, (180, 220, 255), (0, self.sand_top_y, self.width, self.height - self.sand_top_y))
+        
+        # Rocket bottom image
         if self.rocket_bottom_img:
             target_height = self.sand_top_y
             target_width = int(self.rocket_bottom_img.get_width() * (target_height / self.rocket_bottom_img.get_height()))
@@ -5872,30 +6789,33 @@ class IcySurfaceScene(BiomeSurfaceScene):
             rocket_x = self.ship_pos[0] - target_width // 2
             rocket_y = self.sand_top_y - target_height + 200
             surface.blit(scaled_img, (rocket_x, rocket_y))
+        else:
+            # Fallback rocket
+            pygame.draw.rect(surface, (180, 180, 200), (self.ship_pos[0] - 40, self.height - 140, 80, 40))
         
-        # --- Player ---
+        # Player
         self.player.render(surface)
-        # --- Prompt ---
+        
+        # Ship prompt
         if self.enter_ship_prompt and self.prompt_active:
             font = pygame.font.SysFont(None, 32)
             prompt = font.render("Enter Rocket? (Press E)", True, (255, 255, 0))
             surface.blit(prompt, (self.ship_pos[0] - prompt.get_width()//2, self.sand_top_y - 60))
-        # --- Portal ---
+        
+        # Portal
         if self.portal:
             self.portal.draw(surface)
         
-        # --- Portal prompt ---
+        # Portal prompt
         if self.portal_prompt and self.portal_prompt_active:
             font = pygame.font.SysFont(None, 32)
             prompt = font.render("Enter portal? (Press Y)", True, (255, 255, 0))
             surface.blit(prompt, (self.portal.position[0] - prompt.get_width()//2, self.portal.position[1] - 80))
         
-        # --- Info ---
+        # UI info
         font = pygame.font.SysFont(None, 28)
         info = font.render(f"{self.planet.name} Surface (Icy)", True, (200, 255, 255))
         surface.blit(info, (20, 20))
-        
-        # --- Items collected counter ---
         items_text = font.render(f"Items Collected: {len(self.game.collected_items)}/3", True, (255, 255, 255))
         surface.blit(items_text, (20, 50))
     def get_rocket_state(self):
@@ -5904,6 +6824,8 @@ class IcySurfaceScene(BiomeSurfaceScene):
         state["fuel"] = self.player.fuel
         state["position"] = self.planet.position.copy()
         return state
+
+
 # Integrate IcySurfaceScene into planet surface logic
 # In start_planet_surface_scene, add:
 # if getattr(planet, 'biome_type', None) == 'icy':
