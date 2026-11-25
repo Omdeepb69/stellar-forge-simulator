@@ -5,6 +5,8 @@ silently becomes a no-op.
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pygame
 
@@ -39,13 +41,38 @@ class Audio:
         self.sounds: dict[str, pygame.mixer.Sound] = {}
         self.volume = 0.5
         try:
-            if not pygame.mixer.get_init():
-                pygame.mixer.init(RATE, -16, 2, 512)
+            self._init_mixer()
             self.channels = pygame.mixer.get_init()[2]
             self._build()
             self.enabled = True
         except Exception as exc:  # pragma: no cover - depends on hardware
             print(f"[audio] disabled: {exc}")
+
+    @staticmethod
+    def _init_mixer() -> None:
+        cur = pygame.mixer.get_init()
+        if cur and cur[0] == RATE:
+            return
+        if cur:
+            pygame.mixer.quit()
+        try:
+            pygame.mixer.init(RATE, -16, 2, 512)
+            return
+        except pygame.error:
+            if os.environ.get("SDL_AUDIODRIVER"):
+                raise
+        # Try common Linux/desktop SDL audio backends if the default failed
+        last_err: Exception | None = None
+        for drv in ("pulseaudio", "pipewire", "alsa", "dsp"):
+            os.environ["SDL_AUDIODRIVER"] = drv
+            try:
+                pygame.mixer.init(RATE, -16, 2, 512)
+                return
+            except pygame.error as exc:
+                last_err = exc
+        os.environ.pop("SDL_AUDIODRIVER", None)
+        if last_err:
+            raise last_err
 
     def _make(self, data: np.ndarray) -> pygame.mixer.Sound:
         pcm = (np.clip(data, -1, 1) * 32767).astype(np.int16)

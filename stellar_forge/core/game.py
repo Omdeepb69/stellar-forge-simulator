@@ -23,6 +23,11 @@ from .settings import Settings
 
 class Game:
     def __init__(self, headless: bool = False):
+        # Pre-init the mixer BEFORE pygame.init() so SDL picks the right sample
+        # rate and buffer size on all platforms (especially Linux PyInstaller builds
+        # where the default buffer can be misdetected as 0).
+        if not headless:
+            pygame.mixer.pre_init(22050, -16, 2, 512)
         pygame.init()
         pygame.display.set_caption(config.TITLE)
         self.headless = headless

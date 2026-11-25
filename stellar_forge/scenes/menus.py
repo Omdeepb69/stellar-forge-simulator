@@ -307,13 +307,13 @@ class TitleScene(Scene):
             items.append(("Load Game", self._load, "Pick one of your save slots"))
         if self.save and self.save.forge_restored:
             items.append(("New Game +", self._ng_plus, "New galaxy, harder foes, keep your gear"))
-        if self.save:
-            items.append(("Logbook", self._logbook, "Achievements, codex and stats"))
-        items += [("Settings", self._settings, "Audio, display, controls and comfort"),
+        items += [("Logbook", self._logbook, "Achievements, codex and stats"),
+                  ("Settings", self._settings, "Audio, display, controls and comfort"),
+                  ("Controls", self._help, "Flight, surface and gamepad bindings"),
                   ("Credits", self._credits, ""),
                   ("Quit", self._quit, "")]
         self.menu = Menu(items, 262, self.game, 340, x=88)
-        self.menu.ROW = 52 if len(items) <= 8 else 46
+        self.menu.ROW = 52 if len(items) <= 7 else (46 if len(items) == 8 else 43)
 
     def on_enter(self) -> None:
         self.game.dialogue.queue.clear()
@@ -347,7 +347,7 @@ class TitleScene(Scene):
 
     def _logbook(self):
         from .logbook import LogbookScene
-        self.game.scenes.push(LogbookScene(self.game, state=self.save))
+        self.game.scenes.push(LogbookScene(self.game, state=self.save or GameState()))
 
     def _settings(self):
         self.game.scenes.push(SettingsScene(self.game))
