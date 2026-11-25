@@ -1,4 +1,5 @@
-pygame (for visualization, user input, game loop)
-numpy (for vector math, physics calculations, handling numerical data)
-scikit-learn (for the ML model generating planet properties)
-random (for seeding procedural generation)
+pygame>=2.5
+numpy>=1.24
+scikit-learn>=1.2
+# optional: plays the boss cutscene video in-game (a text cutscene is used without it)
+opencv-python>=4.8

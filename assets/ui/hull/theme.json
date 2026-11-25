@@ -1,0 +1,59 @@
+{
+ "borders": {
+  "panel": 13,
+  "button": 6,
+  "button_sel": 6,
+  "tube": 6,
+  "porthole": 0,
+  "tab": 5,
+  "keycap": 5,
+  "plate": 6,
+  "plate_gold": 6,
+  "nameplate": 6,
+  "chip": 4,
+  "iconbtn": 9,
+  "iconbtn_sel": 9
+ },
+ "colors": {
+  "glass": [
+   22,
+   13,
+   6
+  ],
+  "glass2": [
+   32,
+   20,
+   9
+  ],
+  "glass_line": [
+   110,
+   70,
+   26
+  ],
+  "text": [
+   255,
+   220,
+   150
+  ],
+  "accent": [
+   255,
+   160,
+   60
+  ],
+  "dim": [
+   176,
+   134,
+   86
+  ],
+  "good": [
+   170,
+   240,
+   120
+  ],
+  "bad": [
+   255,
+   100,
+   80
+  ]
+ }
+}
