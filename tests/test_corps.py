@@ -16,10 +16,17 @@ def test_corps_fighters_shoot_raiders(game, monkeypatch):
     pos = sp.ship.pos + pygame.Vector2(3000, 0)
     r = Raider(game, pos, 1.0)
     r.aggro = True
-    r.vel = pygame.Vector2(0, 0)   # freeze so it stays in the fighter's firing range
+    # Pin all random attrs so the test is deterministic across Python versions / RNG seeds.
+    # The Raider orbits the CorpsShip; zero accel keeps it nearly stationary so ally
+    # bullets reliably connect within the 4-second window.
+    r.vel = pygame.Vector2(0, 0)
+    r.accel = 0.0          # can't accelerate away from the fighter
+    r.preferred = 350.0    # orbit at exactly the starting separation
+    r.orbit_dir = 1
     sp.enemies.append(r)
     s = CorpsShip(game, pos + pygame.Vector2(-350, 0), "fighter", "patrol", 1.0)
-    s.fire_timer = 0.0             # skip random warm-up delay so first shot fires immediately
+    s.fire_timer = 0.0     # skip random warm-up delay so first shot fires immediately
+    s.preferred = 350.0    # preferred orbit distance = current separation; fighter stays and fires
     sp.corps.ships.append(s)
     hp = r.hp
     run(game, 4)
