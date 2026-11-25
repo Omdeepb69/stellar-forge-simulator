@@ -259,11 +259,6 @@ class CorpsWing:
     def hail(self) -> None:
         from ..scenes.choice import ChoiceScene
         g, st = self.game, self.game.state
-        if not has_contact(st):
-            g.toasts.add("No Corps contact yet - meet the Kestrel Survey Team, or help a Corps ship in a fight",
-                         (255, 190, 90), 4, icon="scanner")
-            g.audio.play("deny")
-            return
         if st.corps_banned:
             g.audio.play("deny")
             body = ("Channel locked. Your Survey Corps calling licence has been revoked.\n"
@@ -289,6 +284,14 @@ class CorpsWing:
         else:
             opts.append(("Emergency SOS  -  call wing", self.emergency_sos,
                          f"Free in real emergencies; false alarm = {PENALTY_FEE} cr penalty"))
+        if not has_contact(st):
+            opts.append(("Close channel", None))
+            body = ("Survey Corps Emergency Frequency.\n"
+                    "No formal Corps contact yet (meet the Kestrel Survey Team or assist a Corps wing for full services), "
+                    "but emergency distress calls are monitored.")
+            g.scenes.push(ChoiceScene(g, "settler:7:Corps Dispatch", "Survey Corps — Emergency Channel",
+                                      body, opts, can_cancel=True))
+            return
         busy = self.hail_cd > 0
         for key, (label, _m, _c, what) in SERVICES.items():
             if key == "strike" and career.rank(st) < STRIKE_RANK:

@@ -54,10 +54,13 @@ def test_joining_a_battle_earns_merit(game, monkeypatch):
 def test_hail_needs_contact(game):
     sp = _space(game)
     run(game, 0.1, [key(pygame.K_c)])
-    assert game.scenes.top is sp                      # no contact: no channel
+    assert game.scenes.top is not sp                  # emergency channel is always reachable
+    assert "Emergency Channel" in game.scenes.top.title
+    game.scenes.pop()
     game.state.groups["survey"] = {"met": 1, "planets": [], "last_day": 0}
     run(game, 0.1, [key(pygame.K_c)])
-    assert game.scenes.top is not sp                  # the Corps channel opens
+    assert game.scenes.top is not sp                  # full Corps channel opens once contact is made
+    assert game.scenes.top.title == "Survey Corps channel"
     game.scenes.pop()
 
 
