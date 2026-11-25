@@ -101,6 +101,9 @@ class GameState:
     corps_merit_total: int = 0                               # lifetime Merit: sets your Corps rank
     corps_job: dict | None = None                            # the active Corps contract
     corps_free_day: int = -1                                 # Commander perk: last day of the free refuel
+    corps_fine: int = 0                                      # unpaid false-alarm penalty owed to Survey Corps
+    corps_strikes: int = 0                                   # unpaid/defaulted penalties (3 => banned)
+    corps_banned: bool = False                               # True once revoked; must buy licence at station
     groups: dict = field(default_factory=dict)              # roaming group key -> {"met", "planets", ...}
     caves_cleared: list = field(default_factory=list)        # planet ids whose cave vault is open            # poi id -> {"seen", "done", "hits", "quest", ...}
 

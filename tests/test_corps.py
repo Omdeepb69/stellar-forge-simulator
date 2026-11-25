@@ -103,3 +103,84 @@ def test_merit_round_trips(tmp_path):
     st.corps_merit = 42
     st.save(tmp_path / "s.json")
     assert GameState.load(tmp_path / "s.json").corps_merit == 42
+
+
+def test_emergency_sos_and_false_alarm_penalties(game, monkeypatch):
+    _invulnerable(monkeypatch)
+    sp = _space(game)
+    st = game.state
+    st.groups["survey"] = {"met": 1, "planets": [], "last_day": 0}
+    sp.enemies.clear()
+
+    # 1. Real emergency (3+ attackers): dispatches fighters for free, no penalty
+    from stellar_forge.entities.enemies import Raider
+    for k in range(3):
+        sp.enemies.append(Raider(game, sp.ship.pos + pygame.Vector2(400 + k * 80, 0), 1.0))
+    st.credits = 500
+    sp.corps.emergency_sos()
+    assert len([s for s in sp.corps.ships if s.mode == "escort"]) == 2
+    assert st.corps_fine == 0 and not st.corps_banned
+
+    # 2. Real emergency (low fuel): also dispatches a free fuel tender
+    sp.enemies.clear()
+    sp.corps.ships.clear()
+    st.fuel = 10
+    sp.corps.emergency_sos()
+    assert any(s.role == "tender" and s.service == "fuel" for s in sp.corps.ships)
+    assert st.corps_fine == 0
+
+    # 3. False alarm with enough credits -> pay now
+    st.fuel = st.max_fuel
+    st.hull = st.max_hull
+    st.credits = 500
+    sp.corps.emergency_sos()
+    assert game.scenes.top is not sp
+    sp.corps._pay_penalty_now()
+    game.scenes.pop()
+    assert st.credits == 500 - C.PENALTY_FEE
+    assert st.corps_fine == 0 and not st.corps_banned
+
+    # 4. Refuse 3 times -> banned, then buy licence at station
+    for strike in range(1, C.MAX_STRIKES):
+        sp.corps._refuse_penalty()
+        assert st.corps_fine == C.PENALTY_FEE
+        assert st.corps_strikes == strike
+        assert not st.corps_banned
+        # While fine is unpaid, hailing shows the penalty screen instead of normal services
+        sp.corps.hail()
+        assert "Unpaid Penalty" in game.scenes.top.title
+        game.scenes.pop()
+    # Pay off an unpaid fine once
+    st.credits = 500
+    sp.corps._settle_fine()
+    assert st.corps_fine == 0 and st.credits == 500 - C.PENALTY_FEE
+    # 3rd refusal -> banned!
+    sp.corps._refuse_penalty()
+    assert st.corps_strikes == C.MAX_STRIKES and st.corps_banned is True
+    sp.corps.hail()
+    assert "Banned" in game.scenes.top.title
+    game.scenes.pop()
+
+    # 5. Station lets player buy back their Survey Corps licence
+    from stellar_forge.scenes.station import StationScene
+    stn = game.universe.find_body("0,0:st")
+    scene = StationScene(game, stn)
+    labels = [r.label for r in scene.rows()]
+    assert "Buy Survey Corps licence" in labels
+    st.credits = 2000
+    scene._buy_corps_licence()
+    assert not st.corps_banned and st.corps_strikes == 0 and st.corps_fine == 0
+
+
+def test_false_alarm_insufficient_credits_bans_immediately(game, monkeypatch):
+    _invulnerable(monkeypatch)
+    sp = _space(game)
+    st = game.state
+    st.groups["survey"] = {"met": 1, "planets": [], "last_day": 0}
+    sp.enemies.clear()
+    st.fuel = st.max_fuel
+    st.hull = st.max_hull
+    st.credits = 10
+    sp.corps._pay_penalty_now()
+    assert st.corps_banned is True
+    assert st.corps_fine == C.PENALTY_FEE

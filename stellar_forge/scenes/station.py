@@ -97,6 +97,13 @@ class StationScene(Scene):
             if beacons(st):
                 rows.append(Row("Warp network", "Jump to one of your outpost beacons.", None, self._warp,
                                 icon="autopilot", verb="Open"))
+        if st.corps_banned:
+            from ..systems import corps as C
+            lic_cost = C.LICENCE_FEE + st.corps_fine
+            rows.append(Row("Buy Survey Corps licence",
+                            "Reinstate your revoked Survey Corps calling privileges.",
+                            lic_cost, self._buy_corps_licence, icon="scanner",
+                            stat=("Status", f"BANNED ({st.corps_strikes}/{C.MAX_STRIKES})"), verb="Buy"))
         rows.append(Row("Undock", "Back to the stars.", None, self._undock, icon="ship", verb="Undock"))
         return rows
 
@@ -202,6 +209,19 @@ class StationScene(Scene):
         if self._pay(cost):
             st.medkits += 1
             self.game.audio.play("pickup")
+
+    def _buy_corps_licence(self):
+        from ..systems import corps as C
+        st = self.game.state
+        if not st.corps_banned:
+            return
+        cost = C.LICENCE_FEE + st.corps_fine
+        if self._pay(cost):
+            st.corps_banned = False
+            st.corps_strikes = 0
+            st.corps_fine = 0
+            self.game.toasts.add("Survey Corps licence reinstated!", (120, 255, 160), 3, icon="scanner")
+            self.game.audio.play("relic", 0.6)
 
     def _sell_ore(self):
         st = self.game.state

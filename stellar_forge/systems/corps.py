@@ -19,6 +19,9 @@ from ..entities.allies import NAMES, CorpsShip
 from . import corps_career as career
 
 HAIL_COOLDOWN = 45.0
+PENALTY_FEE = 150
+MAX_STRIKES = 3
+LICENCE_FEE = 400
 SERVICES = {
     # key: (label, merit cost, credit cost, what it does)
     "fuel": ("Emergency refuel", 12, 160, "a tender fills your tank"),
@@ -46,6 +49,19 @@ def free_refuel(game) -> bool:
 def has_contact(state) -> bool:
     return state.groups.get("survey", {}).get("met", 0) > 0 or state.corps_merit_total > 0 or \
         state.stats.get("corps_battles", 0) > 0
+
+
+def emergency_reason(scene, state) -> str | None:
+    """Return a short reason if the pilot is in a genuine emergency, else None."""
+    if state.fuel <= state.max_fuel * 0.25:
+        return "low fuel"
+    if state.hull <= state.max_hull * 0.35:
+        return "hull critical"
+    ship_pos = scene.ship.pos
+    nearby = [e for e in scene.enemies if e.alive and e.pos.distance_to(ship_pos) < 3500]
+    if len(nearby) >= 3 or any(getattr(e, "is_boss", False) or getattr(e, "captain", False) for e in nearby):
+        return "heavy hostiles"
+    return None
 
 
 class CorpsWing:
@@ -248,7 +264,31 @@ class CorpsWing:
                          (255, 190, 90), 4, icon="scanner")
             g.audio.play("deny")
             return
+        if st.corps_banned:
+            g.audio.play("deny")
+            body = ("Channel locked. Your Survey Corps calling licence has been revoked.\n"
+                    "Dock at any station to purchase a new Survey Corps licence.")
+            g.scenes.push(ChoiceScene(g, "settler:7:Corps Dispatch", "Survey Corps — Banned", body,
+                                      [("Close channel", None)], can_cancel=True))
+            return
+        if st.corps_fine > 0:
+            body = (f"You have an unpaid {st.corps_fine} cr false-alarm penalty "
+                    f"({st.corps_strikes}/{MAX_STRIKES} strikes).\n"
+                    "Settle your penalty before requesting Survey Corps support.")
+            opts = [(f"Pay penalty ({st.corps_fine} cr)", self._settle_fine,
+                     "Clear your penalty and restore Corps support"),
+                    ("Close channel", None)]
+            g.scenes.push(ChoiceScene(g, "settler:7:Corps Dispatch", "Survey Corps — Unpaid Penalty", body,
+                                      opts, can_cancel=True))
+            return
         opts = []
+        reason = emergency_reason(self.scene, st)
+        if reason:
+            opts.append((f"Emergency SOS  -  free ({reason})", self.emergency_sos,
+                         "Dispatch an immediate Corps rescue wing at no charge"))
+        else:
+            opts.append(("Emergency SOS  -  call wing", self.emergency_sos,
+                         f"Free in real emergencies; false alarm = {PENALTY_FEE} cr penalty"))
         busy = self.hail_cd > 0
         for key, (label, _m, _c, what) in SERVICES.items():
             if key == "strike" and career.rank(st) < STRIKE_RANK:
@@ -262,12 +302,95 @@ class CorpsWing:
                 opts.append((f"{label}  -  {merit} Merit", self._buy(key, "merit"), what))
             else:
                 opts.append((f"{label}  -  {cr} cr", self._buy(key, "credits"), f"{what} ({merit} Merit)"))
-        opts.insert(0, ("Corps contracts" + ("  (active)" if st.corps_job else ""),
+        opts.insert(1, ("Corps contracts" + ("  (active)" if st.corps_job else ""),
                         lambda: career.menu(g), "bounties, captain hunts, charting runs"))
         opts.append(("Close channel", None))
         body = (f"Survey Corps, Sector Nine. Go ahead, {career.rank_name(st)}. "
                 f"You hold {st.corps_merit} Merit and {st.credits:,} cr.")
         g.scenes.push(ChoiceScene(g, "settler:7:Corps Dispatch", "Survey Corps channel", body, opts, can_cancel=True))
+
+    def emergency_sos(self) -> None:
+        """Answer a distress call for free in real emergencies, or issue a penalty."""
+        g, st = self.game, self.game.state
+        if st.corps_banned:
+            g.toasts.add("Corps licence revoked — buy a licence at a station.", (255, 90, 90), 3.5, icon="skull")
+            g.audio.play("deny")
+            return
+        if st.corps_fine > 0:
+            g.toasts.add(f"Unpaid penalty ({st.corps_fine} cr) — pay it before calling the Corps.", (255, 160, 80), 3.5)
+            g.audio.play("deny")
+            return
+        reason = emergency_reason(self.scene, st)
+        if not reason:
+            self._false_alarm()
+            return
+        st.bump("corps_calls")
+        names = random.sample(NAMES, 2)
+        for k in range(2):
+            s = CorpsShip(g, self._ring(1500, 1900), "fighter", "escort", self._danger(), names[k])
+            s.timer = 120.0
+            s.offset = Vector2((-160, 160)[k], 120)
+            self.ships.append(s)
+        if reason == "low fuel":
+            t = CorpsShip(g, self._ring(1700, 2100), "tender", "service", self._danger(), "KST Mule")
+            t.service = "fuel"
+            self.ships.append(t)
+        g.toasts.add(f"Emergency SOS ({reason}) — Corps wing inbound!", (120, 255, 160), 3.5, icon="scanner")
+        g.audio.play("relic", 0.5)
+
+    def _false_alarm(self) -> None:
+        from ..scenes.choice import ChoiceScene
+        g, st = self.game, self.game.state
+        body = (f"No emergency detected on your sensors!\n"
+                f"False-alarm dispatch carries a {PENALTY_FEE} cr penalty "
+                f"(strikes: {st.corps_strikes}/{MAX_STRIKES}).")
+        opts = [
+            (f"Pay penalty now ({PENALTY_FEE} cr)", self._pay_penalty_now,
+             "Settle immediately (insufficient credits = ban)"),
+            ("Refuse / Pay later", self._refuse_penalty,
+             f"Corps won't help until paid ({MAX_STRIKES} unpaid = ban)"),
+        ]
+        g.scenes.push(ChoiceScene(g, "settler:7:Corps Dispatch", "False Alarm Penalty", body, opts, can_cancel=False))
+
+    def _pay_penalty_now(self) -> None:
+        g, st = self.game, self.game.state
+        if st.credits >= PENALTY_FEE:
+            st.credits -= PENALTY_FEE
+            st.corps_fine = 0
+            g.toasts.add(f"Corps penalty paid (-{PENALTY_FEE} cr)", (255, 190, 90), 3)
+            g.audio.play("pickup", 0.6)
+        else:
+            st.corps_banned = True
+            st.corps_fine = PENALTY_FEE
+            g.toasts.add("Insufficient credits! Corps banned you — buy a licence at a station.",
+                         (255, 90, 90), 4.5, icon="skull")
+            g.audio.play("deny", 0.8)
+
+    def _refuse_penalty(self) -> None:
+        g, st = self.game, self.game.state
+        st.corps_fine = PENALTY_FEE
+        st.corps_strikes += 1
+        if st.corps_strikes >= MAX_STRIKES:
+            st.corps_banned = True
+            g.toasts.add("3 unpaid penalties! Corps licence revoked — buy a new licence at a station.",
+                         (255, 90, 90), 4.5, icon="skull")
+        else:
+            g.toasts.add(f"Unpaid penalty ({PENALTY_FEE} cr, strike {st.corps_strikes}/{MAX_STRIKES}). "
+                         "Corps won't help until paid.", (255, 160, 80), 4)
+        g.audio.play("deny", 0.7)
+
+    def _settle_fine(self) -> None:
+        g, st = self.game, self.game.state
+        if st.credits >= st.corps_fine:
+            st.credits -= st.corps_fine
+            st.corps_fine = 0
+            g.toasts.add("Corps penalty cleared! Channel restored.", (120, 255, 160), 3)
+            g.audio.play("pickup", 0.6)
+        else:
+            st.corps_banned = True
+            g.toasts.add("Insufficient credits! Corps banned you — buy a licence at a station.",
+                         (255, 90, 90), 4.5, icon="skull")
+            g.audio.play("deny", 0.8)
 
     def _buy(self, key, pay):
         def go():

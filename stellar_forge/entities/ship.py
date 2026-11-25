@@ -181,7 +181,7 @@ class PlayerShip:
     # ------------------------------------------------------------------
     def draw(self, surf, cam, clock) -> None:
         sx, sy = cam.to_screen(self.pos)
-        scale = 2                                    # always draw at art scale - no resizing on camera switch
+        scale = max(0.25, 2 * cam.zoom)               # true world scale in every camera view
         if self.thrusting:
             self._flame_t += 1
             img = self.sprite_thrust[int(self._flame_t / 3) % 3]
