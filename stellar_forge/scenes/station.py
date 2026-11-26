@@ -151,7 +151,7 @@ class StationScene(Scene):
         sp = FOOT_WEAPONS["spear"]
         owned = "spear" in st.weapons
         out.append(Row(sp["name"], sp["desc"] + " Swap on foot with Q.", None if owned else int(800 * self.mult),
-                       None if owned else (lambda: self._buy_weapon("spear")), icon="grapple",
+                       None if owned else (lambda: self._buy_weapon("spear")), icon="blaster",
                        verb="" if owned else "Buy", stat=("Status", "owned" if owned else "for sale")))
         return out
 

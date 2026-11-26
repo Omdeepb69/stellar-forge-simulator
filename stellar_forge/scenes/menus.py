@@ -135,7 +135,7 @@ CONTROLS = [
     ("SPACE / J", "Sword (mines ore, reflects boss orbs)"),
     ("F / K", "Blaster"),
     ("E", "Board rocket, enter caves, talk to settlers and groups, mine, open boards"),
-    ("G  /  O", "Grappling hook  /  outpost menu (at rocket)"),
+    ("O", "Outpost menu (at rocket)"),
     ("H", "Use a Nano-Medkit to restore pilot health"),
     ("F hold  /  Q", "Charged piercing shot  /  swap sword and spear"),
     ("GENERAL", ""),

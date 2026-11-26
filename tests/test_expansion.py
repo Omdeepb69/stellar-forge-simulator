@@ -131,7 +131,7 @@ def _land_on(game, planet):
     return game.scenes.top
 
 
-def test_cave_geode_and_grapple(game, monkeypatch):
+def test_cave_geode_and_exit(game, monkeypatch):
     _invulnerable(monkeypatch)
     pl = _find(game, lambda b: b.kind == "planet" and b.cave and b.biome_id != "gas")
     s = _land_on(game, pl)
@@ -144,11 +144,6 @@ def test_cave_geode_and_grapple(game, monkeypatch):
     run(game, 0.5)
     p = cave.pilot
     assert p.y - p.H >= cave.terrain.ceiling(p.x) - 1     # head under the ceiling
-    # grapple up into the ceiling
-    p._fire_hook(aim_up=True)
-    assert p.hook is not None
-    run(game, 0.6)
-    p.hook = None
     # find and crack a geode
     gid, gx = next(g for c in range(1, 60) for g in cave.terrain.geodes(c))
     p.x, p.y = gx, cave.terrain.height(gx)

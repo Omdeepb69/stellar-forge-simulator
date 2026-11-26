@@ -65,7 +65,11 @@ class SurfaceScene(Scene):
         from ..surface.render import WorldPainter
         self.painter = WorldPainter(self)
         a = game.assets
-        self.rocket_img = a.sprite("rocket/rocket.png", mult=1.5)
+        from ..systems.items import SHIPS
+        ship_id = game.state.ship
+        ship_spec = SHIPS.get(ship_id, SHIPS["voyager"])
+        ship_mult = 1.5 if ship_id == "voyager" else 2.2
+        self.rocket_img = a.sprite(ship_spec["sprite"], mult=ship_mult)
         self.stronghold_img = None
         if self.terrain.stronghold_x is not None:
             self.stronghold_img = a.sprite(self.biome.stronghold_sprite, mult=self.biome.stronghold_mult)
@@ -520,9 +524,6 @@ class SurfaceScene(Scene):
         if self.night:
             g.hint("night", "Night is falling. Creatures hit harder in the dark, but ore glows - bonus ore per "
                             "node until dawn.")
-        if abs(p.x) > 600:
-            g.hint("grapple", f"Press [{g.input.key_name('grapple')}] to fire the grappling hook (hold W to aim "
-                              "higher, hold the key to reel in, jump to let go).")
         cave = getattr(self.terrain, "cave_x", None)
         if cave is not None and abs(p.x - cave) < 500:
             g.hint("cave", "A cave mouth! Caves are dark and dangerous, but the ore down there is rich.")
@@ -798,6 +799,6 @@ class SurfaceScene(Scene):
             hud.warning(surf, f"{self.pilot.liquid[0].upper()}! GET OUT!", self.clock)
         if self.game.settings.show_hints and not self.game.dialogue.active:
             k = self.game.input.key_name
-            text(surf, hud.fit(f"A/D move  W jump/jet  SPACE sword  F blaster  {k('heal')} heal  {k('grapple')} grapple  "
+            text(surf, hud.fit(f"A/D move  W jump/jet  SPACE sword  F blaster  {k('heal')} heal  "
                                "E interact  B logbook", config.SCREEN_W - 2 * 250),
                  (config.SCREEN_W // 2, config.SCREEN_H - 6), 12, (150, 160, 190), anchor="midbottom")

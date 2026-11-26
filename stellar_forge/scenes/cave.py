@@ -257,8 +257,8 @@ class CaveScene(SurfaceScene):
         return 0.0
 
     def _hints(self) -> None:
-        self.game.hint("cave_in", f"Caves have ceilings - perfect for the grappling hook "
-                                  f"[{self.game.input.key_name('grapple')}]. Geodes glow faintly. Exit at the rope.")
+        self.game.hint("cave_in", "Caves are dark and treacherous - use your jetpack [W] to reach high ledges. "
+                                  "Geodes glow faintly. Exit at the rope.")
 
     def save_location(self) -> None:
         self.game.state.location = {"kind": "surface", "planet": self.planet.id}

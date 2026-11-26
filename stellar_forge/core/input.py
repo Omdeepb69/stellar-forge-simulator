@@ -54,7 +54,7 @@ ACTIONS = [
     ("land", "Land", pygame.K_l), ("blaster", "Blaster (on foot)", pygame.K_f),
     ("heal", "Use medkit (on foot)", pygame.K_h),
     ("boost", "Boost", pygame.K_LSHIFT), ("weapon", "Switch weapon", pygame.K_q),
-    ("autopilot", "Autopilot", pygame.K_p), ("grapple", "Grappling hook", pygame.K_g),
+    ("autopilot", "Autopilot", pygame.K_p),
     ("outpost", "Outpost menu", pygame.K_o),
     ("map", "Galaxy map", pygame.K_m), ("logbook", "Logbook", pygame.K_b),
     ("camera", "Camera distance", pygame.K_v), ("corps", "Hail the Survey Corps", pygame.K_c),

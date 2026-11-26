@@ -138,11 +138,21 @@ class WorldPainter:
         self.chunks: OrderedDict = OrderedDict()
         self.ridges = build_ridges(scene, getattr(self, "far_fill", None)) if b.landable else []
         self.clouds = build_clouds(scene) if sum(b.sky_top) >= 200 else []
+        self._smooth_hy: float | None = None
 
     # ---- backdrop -------------------------------------------------------------
     def horizon(self, ox, oy) -> float:
         t = self.scene.terrain
-        return min(t.height(ox + config.SCREEN_W * 0.5 + dx) for dx in (-400, 0, 400)) - oy
+        cx = ox + config.SCREEN_W * 0.5
+        # Wide average across +/-600px + exponential smoothing so small terrain bumps
+        # never bounce the distant mountains or backdrop hills.
+        samples = [t.height(cx + dx) for dx in range(-600, 601, 150)]
+        target_hy = sum(samples) / len(samples)
+        if self._smooth_hy is None:
+            self._smooth_hy = target_hy
+        else:
+            self._smooth_hy += (target_hy - self._smooth_hy) * 0.08
+        return self._smooth_hy - oy
 
     def draw_far(self, surf, ox, oy, clock: float, daylight: float):
         """Distant mountain ranges and drifting clouds: fill the sky above the backdrop."""
@@ -159,10 +169,9 @@ class WorldPainter:
                 surf.fill(img.get_at((0, h - 1))[:3], (0, top + h, config.SCREEN_W, config.SCREEN_H - top - h))
         if self.clouds and daylight > 0.15:
             span = config.SCREEN_W + 600
-            # Anchor vertical cloud parallax around the resting camera height (-0.6 * SCREEN_H)
-            # so clouds sit in the upper sky at ground level and move with the background
-            # when jumping, jetpacking, or climbing hills instead of sticking to the camera.
-            sky_dy = -(oy + config.SCREEN_H * 0.6) * 0.5
+            # Gentle vertical parallax around resting camera height so clouds glide
+            # calmly and don't bounce on small terrain bumps or hops.
+            sky_dy = -(oy + config.SCREEN_H * 0.6) * 0.22
             for img, x, y, speed in self.clouds:
                 cx = (x + clock * speed - ox * 0.16) % span - 300
                 cy = y + sky_dy

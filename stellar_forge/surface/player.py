@@ -69,12 +69,9 @@ class Pilot:
         self.swing_r = [a.image(p, size=sz) for p in swing]
         self.swing_l = [a.image(p, size=sz, flip_x=True) for p in swing]
         self._jump_held = False
-        # caves and derelicts have a ceiling; scenes supply a grapple raycast
+        # caves and derelicts have a ceiling
         self.ceiling = None
         self.anchor_fn = None
-        self.hook = None             # [ax, ay, rope_length]
-        self.hook_miss = None        # [x, y, t] for the rope animation on a miss
-        self._grapple_held = False
         self.charge = 0.0
         self._shoot_held = False
 
@@ -122,37 +119,14 @@ class Pilot:
         jump = keys[pygame.K_UP] or keys[pygame.K_w]
         attack = keys[pygame.K_SPACE] or keys[pygame.K_j]
         shoot = keys[pygame.K_f] or keys[pygame.K_k]
-        grapple = keys[pygame.K_g]
         if not enabled:
-            left = right = jump = attack = shoot = grapple = False
+            left = right = jump = attack = shoot = False
 
         target = (right - left) * self.speed
         if left != right:
             self.facing = 1 if right else -1
-        if self.hook is None:
-            ctrl = 12 * self.friction if self.on_ground else 4.0
-            self.vx += (target - self.vx) * min(1.0, dt * ctrl)
-        else:   # swinging: left/right pump the swing
-            self.vx += (right - left) * 900 * self.k * dt
-
-        # grappling hook
-        if grapple and not self._grapple_held:
-            if self.hook is not None:
-                self.hook = None
-            else:
-                self._fire_hook(jump)
-        elif grapple and self.hook is not None:
-            self.hook[2] = max(70.0 * self.k, self.hook[2] - 420 * self.k * dt)     # hold to reel in
-        self._grapple_held = grapple
-        if self.hook_miss:
-            self.hook_miss[2] -= dt
-            if self.hook_miss[2] <= 0:
-                self.hook_miss = None
-        if self.hook is not None and jump and not self._jump_held:
-            self.hook = None
-            self.vy = min(self.vy, 0) - 380 * self.k
-            self.game.audio.play("jump", 0.6)
-            self._jump_held = True
+        ctrl = 12 * self.friction if self.on_ground else 4.0
+        self.vx += (target - self.vx) * min(1.0, dt * ctrl)
 
         # liquid
         self.submerged = bool(self.liquid) and self.y - self.H * 0.4 > self.liquid[1]
@@ -166,7 +140,7 @@ class Pilot:
             self.air_time = 0
             self.game.audio.play("jump", 0.6)
         self.jetting = False
-        if jump and not self.on_ground and self.air_time > 0.22 and self.jet > 0 and self.hook is None:
+        if jump and not self.on_ground and self.air_time > 0.22 and self.jet > 0:
             self.vy -= self.jet_force * dt * (2 if self.submerged and "ocean" in self.state.trophies else 1)
             self.vy = max(self.vy, -560 * self.k ** 0.75)
             self.jet = max(0.0, self.jet - dt)
@@ -179,8 +153,6 @@ class Pilot:
             self.vy *= max(0.0, 1 - 3.0 * dt)
         self.x += self.vx * dt
         self.y += self.vy * dt
-        if self.hook is not None:
-            self._rope(dt)
         if self.ceiling is not None:
             top = self.ceiling(self.x) + self.H
             if self.y < top:
@@ -203,7 +175,7 @@ class Pilot:
         else:
             self.on_ground = self.y >= gy - 2 and self.vy >= 0
             self.air_time += dt
-        if self.on_ground or self.jetting or self.submerged or self.hook is not None:
+        if self.on_ground or self.jetting or self.submerged:
             self.peak_y = self.y
         else:
             self.peak_y = min(self.peak_y, self.y)
@@ -248,61 +220,11 @@ class Pilot:
         return shots
 
     # ------------------------------------------------------------------
-    def _fire_hook(self, aim_up: bool) -> None:
-        if self.anchor_fn is None:
-            return
-        ang = math.radians(75 if aim_up else 52)
-        dx, dy = self.facing * math.cos(ang), -math.sin(ang)
-        hx, hy = self.hand
-        rng_ = HOOK_RANGE * self.k
-        hit = self.anchor_fn(hx, hy, dx, dy, rng_)
-        if hit is None:
-            self.hook_miss = [hx + dx * rng_, hy + dy * rng_, 0.22]
-            self.game.audio.play("deny", 0.3)
-            return
-        ax, ay = hit
-        self.hook = [ax, ay, max(70.0 * self.k, math.hypot(ax - hx, ay - hy))]
-        self.on_ground = False
-        self.game.audio.play("swing", 0.5)
-        self.game.events.emit("grapple")
-
-    def _rope(self, dt: float) -> None:
-        ax, ay, length = self.hook
-        cx, cy = self.x, self.y - self.H * 0.6
-        dx, dy = cx - ax, cy - ay
-        d = math.hypot(dx, dy) or 1.0
-        if d > 900 * self.k:
-            self.hook = None
-            return
-        if d > length:
-            nx, ny = dx / d, dy / d
-            self.x = ax + nx * length
-            self.y = ay + ny * length + self.H * 0.6
-            vr = self.vx * nx + self.vy * ny
-            if vr > 0:
-                self.vx -= vr * nx
-                self.vy -= vr * ny
-        self.vx *= max(0.0, 1 - 0.15 * dt)
-
-    def draw_rope(self, surf, ox, oy) -> None:
-        hx, hy = self.hand
-        if self.hook is not None:
-            ax, ay = self.hook[0], self.hook[1]
-        elif self.hook_miss:
-            k = 1 - self.hook_miss[2] / 0.22
-            ax = hx + (self.hook_miss[0] - hx) * min(1, k * 2)
-            ay = hy + (self.hook_miss[1] - hy) * min(1, k * 2)
-        else:
-            if self.charge > 0.15:
-                k = min(1.0, self.charge / CHARGE_TIME)
-                c = (140, 230, 255) if k < 1 else (255, 255, 255)
-                pygame.draw.circle(surf, c, (self.x + self.facing * 30 - ox, self.y - self.H * 0.55 - oy), 3 + 7 * k, 2)
-            return
-        a, b = (hx - ox, hy - oy), (ax - ox, ay - oy)
-        pygame.draw.line(surf, (60, 60, 70), a, b, 4)
-        pygame.draw.line(surf, (210, 210, 220), a, b, 2)
-        pygame.draw.circle(surf, (230, 230, 240), b, 6)
-        pygame.draw.circle(surf, (90, 90, 100), b, 6, 2)
+    def _draw_charge(self, surf, ox, oy) -> None:
+        if self.charge > 0.15:
+            k = min(1.0, self.charge / CHARGE_TIME)
+            c = (140, 230, 255) if k < 1 else (255, 255, 255)
+            pygame.draw.circle(surf, c, (self.x + self.facing * 30 - ox, self.y - self.H * 0.55 - oy), 3 + 7 * k, 2)
 
     def hurt(self, amount: float, knock_dir: float = 0.0) -> bool:
         if self.invuln > 0 or amount <= 0:
@@ -407,20 +329,41 @@ class Pilot:
         return out, bob
 
     def draw(self, surf, ox: float, oy: float) -> None:
-        self.draw_rope(surf, ox, oy)
+        self._draw_charge(surf, ox, oy)
         if self.invuln > 0 and int(self.invuln * 20) % 2:
             return
         if self.swinging and self.spear:
             img = self.idle if self.facing > 0 else self.idle_l
             k = 1 - self.swing_t / SPEAR_TIME
-            reach = (40 + 90 * math.sin(min(1.0, k * 1.6) * math.pi / 2)) * self.k
-            y0 = self.y - oy - self.H * 0.55
-            x0 = self.x - ox + self.facing * 6 * self.k
-            tip = x0 + self.facing * reach
-            pygame.draw.line(surf, (60, 50, 40), (x0 - self.facing * 30, y0), (tip, y0), 6)
-            pygame.draw.line(surf, (190, 150, 100), (x0 - self.facing * 30, y0 - 1), (tip, y0 - 1), 2)
-            pygame.draw.polygon(surf, (120, 230, 255), [(tip, y0 - 8), (tip + self.facing * 24, y0), (tip, y0 + 8)])
-            pygame.draw.polygon(surf, (230, 250, 255), [(tip, y0 - 3), (tip + self.facing * 16, y0), (tip, y0 + 1)])
+            reach = (40 + 96 * math.sin(min(1.0, k * 1.6) * math.pi / 2)) * self.k
+            u = max(2, int(round(self.k)))
+            y0 = int(self.y - oy - self.H * 0.55) // 2 * 2
+            x0 = int(self.x - ox + self.facing * 6 * self.k) // 2 * 2
+            f = self.facing
+            butt = int(x0 - f * 26 * self.k) // 2 * 2
+            tip = int(x0 + f * reach) // 2 * 2
+            sx0, sx1 = min(butt, tip), max(butt, tip)
+            # Titanium alloy shaft with dark outline & top specular edge (matches Voyager suit)
+            pygame.draw.rect(surf, (22, 30, 46), (sx0, y0 - 2 * u, sx1 - sx0, 4 * u))
+            pygame.draw.rect(surf, (84, 110, 146), (sx0, y0 - u, sx1 - sx0, 2 * u))
+            pygame.draw.rect(surf, (165, 195, 230), (sx0, y0 - u, sx1 - sx0, u))
+            # Gold counterweight pommel at the rear
+            pygame.draw.rect(surf, (225, 175, 70), (butt - (3 * u if f > 0 else 0), y0 - 2 * u, 3 * u, 4 * u))
+            # Gold/cyan ion emitter collar behind the blade
+            cx = tip - f * 4 * u
+            pygame.draw.rect(surf, (255, 205, 90), (cx - 2 * u, y0 - 3 * u, 4 * u, 6 * u))
+            pygame.draw.rect(surf, (100, 235, 255), (cx - u, y0 - 2 * u, 2 * u, 4 * u))
+            # Stepped pixel-art Ion Blade + white-hot core
+            blade_len = 16 * u
+            pygame.draw.polygon(surf, (45, 175, 240),
+                                [(tip, y0 - 4 * u), (tip + f * blade_len, y0), (tip, y0 + 4 * u)])
+            pygame.draw.polygon(surf, (125, 238, 255),
+                                [(tip, y0 - 2 * u), (tip + f * (blade_len - 3 * u), y0), (tip, y0 + 2 * u)])
+            pygame.draw.polygon(surf, (235, 252, 255),
+                                [(tip, y0 - u), (tip + f * (blade_len - 6 * u), y0), (tip, y0 + u)])
+            if k < 0.75:
+                pulse_x = tip - f * int(6 * u * k)
+                pygame.draw.line(surf, (140, 240, 255), (pulse_x, y0 - 5 * u), (pulse_x, y0 + 5 * u), max(2, u))
         elif self.swinging:
             idx = min(3, int((1 - self.swing_t / SWING_TIME) * 4))
             img = (self.swing_r if self.facing > 0 else self.swing_l)[idx]
