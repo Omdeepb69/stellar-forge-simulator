@@ -22,6 +22,16 @@ class MapScene(Scene):
         self._down = None
         self._view = None    # (origin, cell, cx, cy, area)
         self._hover_sec = None
+        self._clear_btn: pygame.Rect | None = None
+        self._center_btn: pygame.Rect | None = None
+
+    def _clear_waypoint(self) -> None:
+        if self.game.state.waypoint is None:
+            return
+        self.game.state.waypoint = None
+        self.space.autopilot = None
+        self.game.toasts.add("Waypoint cleared", (200, 220, 255), 1.5)
+        self.game.audio.play("ui", 0.6)
 
     def handle_event(self, e) -> None:
         if e.type == pygame.KEYDOWN and e.key in (pygame.K_ESCAPE, pygame.K_m):
@@ -33,6 +43,8 @@ class MapScene(Scene):
         elif e.type == pygame.KEYDOWN and e.key in (pygame.K_h, pygame.K_HOME):
             self.pan = Vector2()
             self.game.audio.play("ui", 0.5)
+        elif e.type == pygame.KEYDOWN and e.key in (pygame.K_x, pygame.K_BACKSPACE, pygame.K_DELETE):
+            self._clear_waypoint()
         elif e.type == pygame.MOUSEWHEEL:
             self.radius = max(2, min(9, self.radius - e.y))
         elif e.type == pygame.MOUSEMOTION:
@@ -42,12 +54,17 @@ class MapScene(Scene):
         elif e.type == pygame.MOUSEBUTTONDOWN and e.button in (1, 3):
             self._down = Vector2(e.pos)
         elif e.type == pygame.MOUSEBUTTONUP and e.button in (1, 3) and self._down is not None:
-            if Vector2(e.pos).distance_to(self._down) < 6 and self._view and self._view[4].collidepoint(e.pos):
-                if e.button == 3:
-                    self.game.state.waypoint = None
-                    self.game.toasts.add("Waypoint cleared", (200, 220, 255), 1.5)
-                else:
-                    self.set_waypoint(e.pos)
+            if Vector2(e.pos).distance_to(self._down) < 6:
+                if e.button == 1 and self._clear_btn and self._clear_btn.collidepoint(e.pos):
+                    self._clear_waypoint()
+                elif e.button == 1 and self._center_btn and self._center_btn.collidepoint(e.pos):
+                    self.pan = Vector2()
+                    self.game.audio.play("ui", 0.5)
+                elif self._view and self._view[4].collidepoint(e.pos):
+                    if e.button == 3:
+                        self._clear_waypoint()
+                    else:
+                        self.set_waypoint(e.pos)
             self._down = None
         elif e.type == pygame.KEYDOWN and e.key == pygame.K_p:
             self.game.scenes.pop()
@@ -81,18 +98,34 @@ class MapScene(Scene):
         veil.fill((3, 6, 16, 248))
         surf.blit(veil, (0, 0))
         th = theme()
-        header = pygame.Rect(30, 14, config.SCREEN_W - 60, 42)
+        header = pygame.Rect(30, 12, config.SCREEN_W - 60, 46)
         th.plate(surf, header)
         th.lamp(surf, (header.x + 18, header.centery), (110, 220, 255))
-        text(surf, "GALAXY MAP", (header.x + 36, header.centery), 22, (255, 225, 150), bold=True, anchor="midleft")
+        text(surf, "GALAXY MAP", (header.x + 36, header.centery), 20, (255, 225, 150), bold=True, anchor="midleft")
         span = 2 * self.radius + 1
-        text(surf, f"{span}x{span} SECTORS", (header.x + 210, header.centery), 12, (110, 220, 255),
+        text(surf, f"{span}x{span}", (header.x + 240, header.centery), 13, (110, 220, 255),
              bold=True, anchor="midleft")
-        text(surf, "Click: waypoint  ·  R-Click: clear  ·  H: center  ·  P: autopilot  ·  Wheel: zoom  ·  Drag: pan  ·  M/Esc: close",
-             (header.right - 16, header.centery), 12, (165, 180, 210), anchor="midright")
 
-        self._galaxy(surf, pygame.Rect(30, 66, 700, 624))
-        self._system(surf, pygame.Rect(748, 66, 502, 624))
+        # Action buttons on the right side of the header bar
+        rx = header.right - 10
+        if self.game.state.waypoint:
+            self._clear_btn = pygame.Rect(rx - 156, header.y + 7, 156, 32)
+            th.plate(surf, self._clear_btn, gold=True)
+            text(surf, "Clear Waypoint", self._clear_btn.center, 12, (255, 225, 140), bold=True, anchor="center")
+            rx = self._clear_btn.x - 10
+        else:
+            self._clear_btn = None
+
+        self._center_btn = pygame.Rect(rx - 110, header.y + 7, 110, 32)
+        th.plate(surf, self._center_btn)
+        text(surf, "Center [H]", self._center_btn.center, 12, (190, 215, 245), anchor="center")
+
+        hint_x = self._center_btn.x - 16
+        text(surf, "Click: waypoint · Wheel: zoom · Drag: pan · P: autopilot · Esc: close",
+             (hint_x, header.centery), 11, (150, 168, 198), anchor="midright")
+
+        self._galaxy(surf, pygame.Rect(30, 68, 700, 622))
+        self._system(surf, pygame.Rect(748, 68, 502, 622))
 
     def _galaxy(self, surf, area: pygame.Rect) -> None:
         panel(surf, area)
@@ -101,7 +134,7 @@ class MapScene(Scene):
         ship = self.space.ship.pos
         cx, cy = Universe.sector_coords(ship)
         R = self.radius
-        map_rect = pygame.Rect(area.x + 6, area.y + 6, area.w - 12, area.h - 68)
+        map_rect = pygame.Rect(area.x + 12, area.y + 12, area.w - 24, area.h - 90)
         cell = min(map_rect.w, map_rect.h) / (2 * R + 1)
         origin = Vector2(map_rect.center) + self.pan
         clip = surf.get_clip()
@@ -157,14 +190,13 @@ class MapScene(Scene):
                     p = to_map(sec.system_center)
                     col = sec.star.color if known else (95, 105, 130)
                     sr = max(3, int(cell * 0.075))
-                    # Soft star halo
                     glow_r = sr * 2 + 2
                     gs = pygame.Surface((glow_r * 2, glow_r * 2), pygame.SRCALPHA)
                     pygame.draw.circle(gs, (*col[:3], 55 if known else 28), (glow_r, glow_r), glow_r)
                     surf.blit(gs, (p.x - glow_r, p.y - glow_r))
                     pygame.draw.circle(surf, col, p, sr)
-                    if known and cell > 46:
-                        text(surf, sec.name, (p.x, p.y + sr + 4), 11, (205, 218, 242), anchor="midtop")
+                    if known and cell > 54:
+                        text(surf, sec.name, (p.x, p.y + sr + 5), 11, (205, 218, 242), anchor="midtop")
                     relic = [pl for pl in sec.planets if pl.stronghold and pl.biome_id in g.quests.missing_relics()
                              and pl.id not in st.looted_strongholds]
                     if relic and (known or near) and g.quests.cid == "keys":
@@ -219,7 +251,7 @@ class MapScene(Scene):
             if body is not None:
                 p = to_map(body.pos(t))
                 pygame.draw.circle(surf, (255, 220, 140), p, 5, 2)
-                if cell > 40:
+                if cell > 44:
                     text(surf, o.get("name", ""), (p.x, p.y - 7), 10, (255, 220, 140), anchor="midbottom")
         if st.ending and not st.signal_found:
             from ..systems.quests import signal_position
@@ -232,23 +264,23 @@ class MapScene(Scene):
             pygame.draw.line(surf, (80, 225, 165), to_map(ship), p, 2)
             surf.blit(self.game.assets.image("generated/ui/icons/waypoint.png", size=(22, 22)), (p.x - 6, p.y - 20))
             dist_sec = wp_world.distance_to(ship) / config.SECTOR_SIZE
-            text(surf, f"{st.waypoint[2]} ({dist_sec:.1f} sec)", (p.x, p.y + 8), 11, (120, 245, 185), anchor="midtop")
+            text(surf, f"{st.waypoint[2]} ({dist_sec:.1f} sec)", (p.x, p.y + 10), 11, (120, 245, 185), anchor="midtop")
         sp = to_map(ship)
         fwd = self.space.ship.forward
         pygame.draw.polygon(surf, (255, 255, 255), [sp + fwd * 9, sp + fwd.rotate(140) * 7, sp + fwd.rotate(-140) * 7])
-        if cell <= 50:
+        if cell <= 54:
             home = to_map(u.sector(0, 0).system_center)
             text(surf, "Haven", (home.x, home.y - 10), 12, (255, 230, 160), anchor="midbottom")
         surf.set_clip(clip)
 
-        # Bottom status & legend bar inside the galaxy panel
-        bar_rect = pygame.Rect(area.x + 8, area.bottom - 58, area.w - 16, 50)
+        # Bottom status & legend bar inside the galaxy panel (generous spacing, fixed columns)
+        bar_rect = pygame.Rect(area.x + 12, area.bottom - 72, area.w - 24, 58)
         theme().plate(surf, bar_rect)
         if self._hover_sec is not None:
             hx, hy = self._hover_sec
             hsec = u.peek(hx, hy)
             if hsec and hsec.has_system and hsec.key in st.discovered_systems:
-                info = f"Cursor ({hx},{hy}) · {hsec.name} · Danger {hsec.danger:.1f} · {len(hsec.planets)} planets"
+                info = f"Cursor ({hx},{hy}) · {hsec.name} · Danger {hsec.danger:.1f} · {len(hsec.planets)} worlds"
             elif hsec:
                 info = f"Cursor ({hx},{hy}) · {'Uncharted system' if hsec.has_system else 'Deep space'} · Danger {hsec.danger:.1f}"
             else:
@@ -256,15 +288,15 @@ class MapScene(Scene):
         else:
             info = (f"Sector ({cx},{cy}) · Danger {u.sector(cx, cy).danger:.1f} · "
                     f"{len(st.discovered_systems)} systems charted")
-        text(surf, info, (bar_rect.x + 12, bar_rect.y + 10), 13, (200, 218, 245))
+        text(surf, info, (bar_rect.x + 14, bar_rect.y + 16), 12, (205, 222, 248), anchor="midleft")
         legend = [((255, 220, 140), "Star"), ((110, 225, 255), "Station"), ((255, 210, 90), "Signal"),
                   ((255, 190, 110), "Outpost"), (config.UI_VIOLET, "Shard"), ((90, 230, 160), "Waypoint")]
-        lx = bar_rect.x + 12
-        ly = bar_rect.y + 34
-        for col, lbl in legend:
+        col_w = (bar_rect.w - 24) // len(legend)
+        ly = bar_rect.y + 40
+        for idx, (col, lbl) in enumerate(legend):
+            lx = bar_rect.x + 16 + idx * col_w
             pygame.draw.circle(surf, col, (lx + 4, ly), 4)
-            text(surf, lbl, (lx + 12, ly), 11, (155, 170, 200), anchor="midleft")
-            lx += 18 + len(lbl) * 7 + 14
+            text(surf, lbl, (lx + 14, ly), 11, (165, 180, 210), anchor="midleft")
 
     def _system(self, surf, area: pygame.Rect) -> None:
         panel(surf, area)
@@ -277,28 +309,27 @@ class MapScene(Scene):
                  (130, 145, 175), anchor="center")
             return
 
-        # System header plate
-        hdr = pygame.Rect(area.x + 10, area.y + 10, area.w - 20, 52)
+        # System header plate with clean internal padding
+        hdr = pygame.Rect(area.x + 16, area.y + 16, area.w - 32, 64)
         th.plate(surf, hdr)
-        text(surf, f"{sys_.name} System", (hdr.x + 14, hdr.y + 10), 19, sys_.star.color, bold=True)
-        text(surf, f"{sys_.star.spectral}-class star  ·  {len([p for p in sys_.planets if not p.is_moon])} worlds",
-             (hdr.x + 14, hdr.y + 32), 12, (175, 190, 220))
+        text(surf, f"{sys_.name} System", (hdr.x + 16, hdr.y + 18), 18, sys_.star.color, bold=True, anchor="midleft")
+        planets = [p for p in sys_.planets if not p.is_moon]
+        text(surf, f"{sys_.star.spectral}-class star  ·  {len(planets)} worlds",
+             (hdr.x + 16, hdr.y + 44), 12, (175, 190, 220), anchor="midleft")
         d_col = config.UI_DANGER if sys_.danger >= 3 else (config.UI_WARN if sys_.danger >= 2 else config.UI_GOOD)
-        text(surf, f"Danger {sys_.danger:.1f}", (hdr.right - 14, hdr.centery), 13, d_col, bold=True, anchor="midright")
+        text(surf, f"Danger {sys_.danger:.1f}", (hdr.right - 16, hdr.centery), 13, d_col, bold=True, anchor="midright")
 
         # Orrery view
-        orrery_h = 310
-        c = Vector2(area.centerx, area.y + 68 + orrery_h * 0.5)
-        scale = (min(area.w - 40, orrery_h - 24) / 2) / max(1, sys_.system_radius - 1500)
+        orrery_h = 248
+        c = Vector2(area.centerx, area.y + 84 + orrery_h * 0.5)
+        scale = (min(area.w - 64, orrery_h - 32) / 2) / max(1, sys_.system_radius - 1500)
         center = sys_.star.pos(t)
-        # Star glow
         gs = pygame.Surface((40, 40), pygame.SRCALPHA)
         pygame.draw.circle(gs, (*sys_.star.color[:3], 60), (20, 20), 18)
         surf.blit(gs, (c.x - 20, c.y - 20))
         pygame.draw.circle(surf, sys_.star.color, c, 8)
 
         st = self.game.state
-        planets = [p for p in sys_.planets if not p.is_moon]
         for idx, p in enumerate(planets, 1):
             pygame.draw.circle(surf, (36, 48, 76), c, max(4, int(p.orbit_r * scale)), 1)
             pp = c + (p.pos(t) - center) * scale
@@ -306,7 +337,7 @@ class MapScene(Scene):
             pygame.draw.circle(surf, p.map_color(), pp, pr)
             if p.stronghold and p.id not in st.looted_strongholds:
                 pygame.draw.circle(surf, (255, 210, 90), pp, pr + 4, 1)
-            text(surf, str(idx), (pp.x, pp.y - pr - 4), 10, (185, 200, 225), anchor="midbottom")
+            text(surf, str(idx), (pp.x, pp.y - pr - 5), 10, (185, 200, 225), anchor="midbottom")
         for s in sys_.stations:
             sp = c + (s.pos(t) - center) * scale
             pygame.draw.rect(surf, (110, 225, 255), (sp.x - 3, sp.y - 3, 7, 7))
@@ -316,17 +347,14 @@ class MapScene(Scene):
             pygame.draw.polygon(surf, (255, 255, 255),
                                 [shp + fwd * 7, shp + fwd.rotate(140) * 5, shp + fwd.rotate(-140) * 5])
 
-        # Planet list cards
-        list_y = area.y + 382
+        # Planet list cards with generous row height (32px) and padding
+        list_y = area.y + 346
         for idx, p in enumerate(planets[:7], 1):
-            row = pygame.Rect(area.x + 12, list_y + (idx - 1) * 30, area.w - 24, 26)
+            row = pygame.Rect(area.x + 16, list_y + (idx - 1) * 37, area.w - 32, 32)
             sig = p.stronghold and p.id not in st.looted_strongholds
-            if sig:
-                th.plate(surf, row, gold=True)
-            else:
-                th.plate(surf, row)
-            pygame.draw.circle(surf, p.map_color(), (row.x + 14, row.centery), 5)
-            text(surf, f"{idx}. {p.name} · {p.biome.name}", (row.x + 26, row.centery), 12,
+            th.plate(surf, row, gold=sig)
+            pygame.draw.circle(surf, p.map_color(), (row.x + 16, row.centery), 5)
+            text(surf, f"{idx}. {p.name} · {p.biome.name}", (row.x + 30, row.centery), 12,
                  (225, 235, 250), anchor="midleft")
             badges = []
             if p.id in st.outposts:
@@ -335,7 +363,7 @@ class MapScene(Scene):
                 badges.append(("SIGNAL", (255, 215, 90)))
             if p.id in st.landed_planets:
                 badges.append(("LANDED", (120, 255, 160)))
-            bx = row.right - 10
+            bx = row.right - 14
             for btxt, bcol in badges:
-                text(surf, btxt, (bx, row.centery), 10, bcol, bold=True, anchor="midright")
-                bx -= len(btxt) * 6 + 12
+                text(surf, btxt, (bx, row.centery), 11, bcol, bold=True, anchor="midright")
+                bx -= len(btxt) * 8 + 14

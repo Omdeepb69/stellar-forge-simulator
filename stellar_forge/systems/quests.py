@@ -309,9 +309,7 @@ class QuestManager:
     def target(self):
         """(label, body) the compass should point at, or None."""
         u = self.game.universe
-        if self.cid in ("signal", "return"):
-            return "Haven Station", u.find_body(HOME_STATION)
-        if self.cid == "raiders":
+        if self.cid == "return":
             return "Haven Station", u.find_body(HOME_STATION)
         if self.cid == "forge":
             return "The Stellar Forge", u.find_body(FORGE)
