@@ -122,10 +122,14 @@ jobs:
             StellarForge-macOS.zip
 
   build-android:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: Cache Buildozer global directory
         uses: actions/cache@v4
@@ -135,12 +139,32 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildozer-
 
+      - name: Install Buildozer & dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential git zip unzip openjdk-17-jdk \
+            autoconf automake autopoint libtool libltdl-dev pkg-config \
+            zlib1g-dev libncurses5-dev libncursesw5-dev cmake libffi-dev \
+            libssl-dev lld texinfo
+          pip install git+https://github.com/kivy/buildozer.git "cython<3" setuptools
+
       - name: Build Android APK (debug)
-        uses: ArtemSBulgakov/buildozer-action@v1
-        id: buildozer
+        run: |
+          set -o pipefail
+          buildozer -v android debug 2>&1 | tee buildozer.log
+        timeout-minutes: 60
+
+      - name: Show buildozer tail on failure
+        if: failure()
+        run: |
+          tail -n 120 buildozer.log || true
+
+      - name: Upload buildozer log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
         with:
-          command: buildozer -v android debug
-          buildozer_version: master
+          name: buildozer-log
+          path: buildozer.log
 
       - name: Rename APK
         run: |
