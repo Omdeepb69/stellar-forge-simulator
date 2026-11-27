@@ -42,9 +42,9 @@ class Raider:
     def update(self, dt, ship, hidden: bool, particles) -> list[Bullet]:
         to = ship.pos - self.pos
         dist = to.length() or 1
-        if dist < (900 if hidden else 2600):
+        if dist < (1100 if hidden else 3400):
             self.aggro = True
-        elif dist > 5000:
+        elif dist > 6000:
             self.aggro = False
         desire = Vector2()
         if self.aggro:

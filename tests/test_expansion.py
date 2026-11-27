@@ -379,3 +379,17 @@ def test_plasma_boomerang_flight(game):
             break
     assert saw_return and not p.boom_active
     assert p.sword_rect() is None
+
+
+def test_space_enemy_spawns_aggroed_in_range(game, monkeypatch):
+    sp = _space(game)
+    game.state.chapter = 3   # "keys" chapter: free-roam spawning active
+    sp.enemies.clear()
+    sp.in_nebula = False
+    monkeypatch.setattr("random.random", lambda: 0.0)
+    sp.spawn_timer = 0.0
+    sp._spawn(0.016)
+    assert sp.enemies
+    for e in sp.enemies:
+        assert e.aggro
+        assert e.pos.distance_to(sp.ship.pos) <= 2500

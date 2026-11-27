@@ -708,7 +708,7 @@ class SpaceScene(Scene):
                 if not e.alive:
                     self._enemy_killed(e)
         self.enemies = [e for e in self.enemies if e.alive and
-                        e.pos.distance_to(ship.pos) < (30000 if getattr(e, "is_boss", False) else 12000)]
+                        e.pos.distance_to(ship.pos) < (30000 if getattr(e, "is_boss", False) else 5500)]
 
         for p in self.pickups:
             p.update(dt, ship.pos)
@@ -831,15 +831,22 @@ class SpaceScene(Scene):
         danger = sec.danger
         cap = min(7, int(1 + danger))
         if (sec.sx, sec.sy) == (0, 0):
-            cap = 1
+            cap = 2
         if self.in_nebula or len(self.enemies) >= cap:
             return
-        if random.random() < 0.18 + danger * 0.04:
+        if random.random() < 0.25 + danger * 0.05:
             n = 1 if danger < 2 else random.randint(1, min(3, int(danger)))
-            base = ship.pos + Vector2(1, 0).rotate(random.uniform(0, 360)) * random.uniform(2400, 3200)
+            if ship.vel.length_squared() > 10000:
+                ang = ship.vel.angle_to(Vector2(1, 0))
+                dir_v = Vector2(1, 0).rotate(-ang + random.uniform(-65, 65))
+            else:
+                dir_v = Vector2(1, 0).rotate(random.uniform(0, 360))
+            base = ship.pos + dir_v * random.uniform(1600, 2300)
             for i in range(n):
                 elite = danger > 2.5 and random.random() < 0.15 + danger * 0.03
-                self.enemies.append(Raider(self.game, base + Vector2(i * 90, 0), danger, elite=elite))
+                r = Raider(self.game, base + Vector2(i * 90, 0), danger, elite=elite)
+                r.aggro = True
+                self.enemies.append(r)
             if n > 1:
                 self.game.toasts.add("Raider squadron inbound!", config.UI_DANGER)
                 self.game.audio.play("alarm", 0.5)
