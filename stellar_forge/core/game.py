@@ -51,6 +51,8 @@ class Game:
         self.banner = Banner()
         self.achievements = AchievementTracker(self)
         self.input = Input(self)
+        from ..ui.touch import TouchOverlay
+        self.touch = TouchOverlay(self)
         self.state: GameState | None = None
         self.universe: Universe | None = None
         self.quests: QuestManager | None = None
@@ -86,6 +88,8 @@ class Game:
         palette.set_colorblind(s.colorblind)
         if hasattr(self, "input"):
             self.input.rebuild_bindings()
+        if hasattr(self, "touch"):
+            self.touch.enabled = getattr(s, "touch_controls", False) or config.IS_ANDROID
 
     # ------------------------------------------------------------------
     # game feel
@@ -392,6 +396,10 @@ class Game:
 
     def _expand(self, events):
         for event in events:
+            # Touch events are consumed by the overlay and turned into KEYDOWN/UP
+            if event.type in (pygame.FINGERDOWN, pygame.FINGERUP, pygame.FINGERMOTION):
+                self.touch.handle_event(event)
+                continue
             if pygame.JOYAXISMOTION <= event.type <= pygame.JOYDEVICEREMOVED:
                 yield from self.input.translate(event)
             else:
@@ -441,6 +449,8 @@ class Game:
             self.banner.draw(self.screen)
         self.toasts.draw(self.screen, in_menu)
         self.dialogue.draw(self.screen)
+        # Touch overlay drawn on top of everything except the FPS counter
+        self.touch.draw(self.screen)
         if self.show_fps:
             from ..ui.text import text
             text(self.screen, f"{self.clock.get_fps():.0f} fps", (config.SCREEN_W - 8, config.SCREEN_H - 8),

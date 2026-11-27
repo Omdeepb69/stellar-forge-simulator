@@ -146,6 +146,9 @@ CONTROLS = [
     ("Stick / D-pad", "Steer, walk, menus    A fire/confirm    B back    X dock/interact"),
     ("Y  LB  RB", "Land    boost    blaster      LT brake  RT thrust   View map   Guide camera"),
     ("On foot", "A jump    X sword    Y interact    RB blaster    L-stick click: Corps"),
+    ("TOUCH SCREEN", ""),
+    ("Left joystick / D-pad", "Steer and thrust (space) · walk and jump (on foot)"),
+    ("Right-side buttons", "Action buttons change per scene · enable in Settings or auto on Android"),
 ]
 
 
@@ -686,6 +689,7 @@ class SettingsScene(Scene):
             ("Control hints", "On" if s.show_hints else "Off", "show_hints"),
             ("Show FPS", "On" if s.show_fps else "Off", "show_fps"),
             ("Colour-blind signals", "On" if s.colorblind else "Off", "colorblind"),
+            ("Touch controls", "On" if s.touch_controls else "Off", "touch_controls"),
             ("Rebind controls...", "", "keys"),
             ("Controls reference", "", "ref"),
             ("Back", "", "back"),
@@ -701,7 +705,7 @@ class SettingsScene(Scene):
             s.shake = vals[(i + d) % 3]
         elif key == "fullscreen":
             self.game.toggle_fullscreen()
-        elif key in ("show_hints", "show_fps", "colorblind"):
+        elif key in ("show_hints", "show_fps", "colorblind", "touch_controls"):
             setattr(s, key, not getattr(s, key))
         elif key == "keys":
             self.game.scenes.push(KeybindScene(self.game))

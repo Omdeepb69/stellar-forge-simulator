@@ -8,4 +8,5 @@ stella/
 .venv/
 venv/
 *.spec
+!buildozer.spec
 *.egg-info/

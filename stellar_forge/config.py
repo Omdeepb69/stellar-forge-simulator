@@ -12,7 +12,28 @@ PACKAGE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = PACKAGE_DIR.parent
 ASSET_DIR = PROJECT_DIR / "assets"
 SAVE_DIR = PROJECT_DIR / "saves"
-if getattr(sys, "frozen", False):
+
+# --- Android detection -----------------------------------------------------
+def _is_android() -> bool:
+    try:
+        import android  # noqa: F401
+        return True
+    except ImportError:
+        pass
+    return bool(os.environ.get("ANDROID_ARGUMENT") or os.environ.get("P4A_BOOTSTRAP"))
+
+IS_ANDROID = _is_android()
+
+if IS_ANDROID:
+    # python-for-android: assets are bundled next to the script, saves go to app-private storage
+    try:
+        from android.storage import app_storage_path  # type: ignore[import]
+        _android_base = Path(app_storage_path())
+    except Exception:
+        _android_base = Path(os.environ.get("ANDROID_PRIVATE", "."))
+    ASSET_DIR = _android_base / "assets"
+    SAVE_DIR = _android_base / "saves"
+elif getattr(sys, "frozen", False):
     # packaged build (PyInstaller): assets ship inside the bundle, saves go to the user's data folder
     ASSET_DIR = Path(getattr(sys, "_MEIPASS", PROJECT_DIR)) / "assets"
     base = Path(os.environ.get("APPDATA") or os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")

@@ -155,6 +155,10 @@ class Input:
         virtual = {k for k in self.held if k not in TAP_ONLY} | self.triggers
         for d in self.dirs:
             virtual.update(DIRS[d])
+        # Merge touch-overlay held keys
+        touch = getattr(self.game, "touch", None)
+        if touch is not None and touch.enabled:
+            virtual |= {k for k in touch.held if k not in TAP_ONLY}
         if not hasattr(self, "to_phys"):
             self.rebuild_bindings()
         return _Merged(pygame.key.get_pressed(), virtual, self.to_phys, self.blocked)

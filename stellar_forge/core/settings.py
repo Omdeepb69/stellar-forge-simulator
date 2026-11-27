@@ -17,6 +17,7 @@ class Settings:
     show_fps: bool = False
     show_hints: bool = True     # control hints along the bottom of the screen
     colorblind: bool = False    # swap red/green signals for orange/blue
+    touch_controls: bool = False  # show on-screen touch buttons (auto-enabled on Android)
     bindings: dict = field(default_factory=dict)   # action -> pygame key code
     last_slot: int = 0
     camera: int = 1             # space camera distance: 0 close, 1 medium, 2 far
