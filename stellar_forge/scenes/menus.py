@@ -781,14 +781,8 @@ def credits_lines(game) -> list[tuple[str, int, tuple]]:
     g, c, w = GOLD, CYAN, (225, 230, 245)
     return [
         ("STELLAR FORGE", 44, g), ("The Last Voyager", 22, c), ("", 30, w),
-        ("ORIGINAL GAME, ART & STORY", 16, c), ("Omdeep Borkar", 24, w), ("", 24, w),
-        ("PROGRAMMING", 16, c), ("Object-oriented engine, infinite galaxy,", 18, w),
-        ("procedural worlds, music and Act II", 18, w), ("", 24, w),
-        ("PROCEDURAL SYSTEMS", 16, c), ("Seeded sectors  ·  9 biomes  ·  numpy planet renderer", 18, w),
-        ("scikit-learn planet model  ·  synthesised music & sound", 18, w), ("", 24, w),
-        ("CAST", 16, c), ("The Voyager  ·  Commander Vey  ·  Ship AI", 18, w), ("The Warlord and his Remnant", 18, w),
-        ("", 24, w), ("BUILT WITH", 16, c), ("Python  ·  Pygame  ·  NumPy  ·  scikit-learn  ·  OpenCV", 18, w),
-        ("", 40, w), ("Thank you for playing.", 26, g), ("The galaxy never ends.", 18, c),
+        ("ORIGINAL, ART & STORY BY", 16, c), ("Omdeep, Baburao and Uddhav", 24, w), ("", 30, w),
+        ("Thank you for playing.", 26, g), ("The galaxy never ends.", 18, c),
     ]
 
 
