@@ -1,11 +1,7 @@
 """Tests for the touch control overlay and Android config."""
 import os
-import sys
-from collections import defaultdict
-from unittest.mock import MagicMock, patch
 
 import pygame
-import pytest
 
 # ---------------------------------------------------------------------------
 # Touch overlay unit tests
@@ -131,3 +127,4 @@ class TestAndroidConfig:
         s = Settings()
         assert hasattr(s, "touch_controls")
         assert s.touch_controls is False
+

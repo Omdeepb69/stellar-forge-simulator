@@ -3,6 +3,7 @@
 Everything gameplay-relevant lives here so balancing never requires
 hunting through scene code.
 """
+import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -15,11 +16,8 @@ SAVE_DIR = PROJECT_DIR / "saves"
 
 # --- Android detection -----------------------------------------------------
 def _is_android() -> bool:
-    try:
-        import android  # noqa: F401
+    if importlib.util.find_spec("android") is not None:
         return True
-    except ImportError:
-        pass
     return bool(os.environ.get("ANDROID_ARGUMENT") or os.environ.get("P4A_BOOTSTRAP"))
 
 IS_ANDROID = _is_android()

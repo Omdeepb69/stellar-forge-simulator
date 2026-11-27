@@ -30,12 +30,10 @@ if TYPE_CHECKING:
 
 def is_android() -> bool:
     """Return *True* when running inside a python-for-android environment."""
-    try:
-        import android  # noqa: F401 – python-for-android injects this module
-        return True
-    except ImportError:
-        pass
+    import importlib.util
     import os
+    if importlib.util.find_spec("android") is not None:
+        return True
     return bool(os.environ.get("ANDROID_ARGUMENT") or os.environ.get("P4A_BOOTSTRAP"))
 
 
