@@ -232,8 +232,8 @@ def test_station_tabs_trade_ships_mods(game):
     ss._sell_mod(st.mods[-1])
     assert len(st.mods) == 3
     ss._buy_weapon("missile")
-    ss._buy_weapon("spear")
-    assert "missile" in st.weapons and st.foot_weapon == "spear"
+    ss._buy_weapon("boomerang")
+    assert "missile" in st.weapons and st.foot_weapon == "boomerang"
     ss.tab = 4
     run(game, 0.05)
     assert st.max_hull >= hull_before * 0.9
@@ -350,3 +350,32 @@ def test_difficulty_scales_damage(game):
     hp = st.pilot_hp
     game.scenes.top.pilot.hurt(10)
     assert hp - st.pilot_hp == pytest.approx(15)
+
+
+def test_plasma_boomerang_flight(game):
+    from stellar_forge.surface.player import Pilot
+    st = game.state
+    st.weapons.append("boomerang")
+    st.foot_weapon = "boomerang"
+    p = Pilot(game, 0.0, lambda x: 0.0)
+    p.facing = 1
+    from collections import defaultdict
+    keys_attack = defaultdict(bool, {pygame.K_SPACE: True})
+    keys_idle = defaultdict(bool)
+    p.update(0.016, keys_attack)
+    assert p.boom_active and p.boom_phase == "out"
+    assert p.sword_rect() is not None
+    start_x = p.boom_x
+    for _ in range(15):
+        p.update(0.02, keys_idle)
+    assert p.boom_x > start_x
+    # Simulate until return phase and catch
+    saw_return = False
+    for _ in range(80):
+        p.update(0.02, keys_idle)
+        if p.boom_phase == "return":
+            saw_return = True
+        if not p.boom_active:
+            break
+    assert saw_return and not p.boom_active
+    assert p.sword_rect() is None

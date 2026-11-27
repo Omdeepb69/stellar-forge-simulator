@@ -137,7 +137,7 @@ CONTROLS = [
     ("E", "Board rocket, enter caves, talk to settlers and groups, mine, open boards"),
     ("O", "Outpost menu (at rocket)"),
     ("H", "Use a Nano-Medkit to restore pilot health"),
-    ("F hold  /  Q", "Charged piercing shot  /  swap sword and spear"),
+    ("F hold  /  Q", "Charged piercing shot  /  swap sword and boomerang"),
     ("GENERAL", ""),
     ("B", "Logbook: journal, codex, achievements, stats"),
     ("Enter", "Advance dialogue     ESC pause     F11 fullscreen     F3 fps"),

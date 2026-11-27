@@ -8,7 +8,10 @@ import pygame
 from .. import config
 
 SWING_TIME = 0.3
-SPEAR_TIME = 0.42
+BOOMERANG_THROW_TIME = 0.22
+BOOMERANG_OUT_TIME = 0.36
+BOOMERANG_MAX_TIME = 1.6
+BOOMERANG_SPEED = 980.0
 BLASTER_COOLDOWN = 0.32
 CHARGE_TIME = 0.7
 HOOK_RANGE = 640
@@ -68,6 +71,18 @@ class Pilot:
         self.idle_l = a.image("player/mainCharStill.png", size=sz, flip_x=True)
         self.swing_r = [a.image(p, size=sz) for p in swing]
         self.swing_l = [a.image(p, size=sz, flip_x=True) for p in swing]
+        bsz = max(20, int(22 * self.k))
+        self.boomerang_img = a.image("player/boomerang.png", size=(bsz, bsz))
+        self.boom_active = False
+        self.boom_x = 0.0
+        self.boom_y = 0.0
+        self.boom_vx = 0.0
+        self.boom_dir = 1
+        self.boom_phase = ""
+        self.boom_t = 0.0
+        self.boom_ret_t = 0.0
+        self.boom_angle = 0.0
+        self.boom_trail = []
         self._jump_held = False
         # caves and derelicts have a ceiling
         self.ceiling = None
@@ -85,27 +100,28 @@ class Pilot:
         return self.swing_t > 0
 
     @property
-    def spear(self) -> bool:
-        return self.state.foot_weapon == "spear"
+    def boomerang(self) -> bool:
+        return self.state.foot_weapon in ("boomerang", "spear")
 
     @property
     def swing_time(self) -> float:
-        return SPEAR_TIME if self.spear else SWING_TIME
+        return BOOMERANG_THROW_TIME if self.boomerang else SWING_TIME
 
     def sword_rect(self) -> pygame.Rect | None:
+        if self.boomerang:
+            if not self.boom_active:
+                return None
+            r = 20 * self.k
+            return pygame.Rect(self.boom_x - r, self.boom_y - r, r * 2, r * 2)
         if not self.swinging or self.swing_t < self.swing_time * 0.15:
             return None
-        if self.spear:   # long, narrow thrust
-            w = 124 * self.k
-            x = self.x + (6 if self.facing > 0 else -6 - w)
-            return pygame.Rect(x, self.y - self.H * 0.75, w, 34 * self.k)
         w = 78 * self.k
         x = self.x + (10 * self.k if self.facing > 0 else -10 * self.k - w)
         return pygame.Rect(x, self.y - self.H - 10, w, self.H + 10)
 
     @property
     def melee_damage(self) -> float:
-        return self.state.melee_damage * (1.6 if self.spear else 1.0)
+        return self.state.melee_damage * (1.25 if self.boomerang else 1.0)
 
     @property
     def hand(self):
@@ -187,10 +203,15 @@ class Pilot:
         # combat
         self.swing_t = max(0.0, self.swing_t - dt)
         self.blaster_t = max(0.0, self.blaster_t - dt)
-        if attack and self.swing_t <= 0:
-            self.swing_t = self.swing_time
-            self.swing_hit = set()
-            self.game.audio.play("swing", 0.7)
+        if attack:
+            if self.boomerang and not self.boom_active:
+                self._launch_boomerang()
+            elif not self.boomerang and self.swing_t <= 0:
+                self.swing_t = self.swing_time
+                self.swing_hit = set()
+                self.game.audio.play("swing", 0.7)
+        if self.boom_active:
+            self._update_boomerang(dt)
         # blaster: tap to fire, hold to charge a piercing shot
         if shoot:
             if not self._shoot_held and self.blaster_t <= 0:
@@ -220,6 +241,61 @@ class Pilot:
         return shots
 
     # ------------------------------------------------------------------
+    def _launch_boomerang(self) -> None:
+        self.boom_active = True
+        self.boom_phase = "out"
+        self.boom_dir = self.facing
+        self.boom_x = self.x + self.facing * 20 * self.k
+        self.boom_y = self.y - self.H * 0.58
+        self.boom_vx = self.facing * BOOMERANG_SPEED * self.k
+        self.boom_t = 0.0
+        self.boom_ret_t = 0.0
+        self.boom_angle = 0.0 if self.facing > 0 else 180.0
+        self.boom_trail.clear()
+        self.swing_t = BOOMERANG_THROW_TIME
+        self.swing_hit = set()
+        self.game.audio.play("swing", 0.7)
+
+    def _update_boomerang(self, dt: float) -> None:
+        self.boom_t += dt
+        self.boom_angle = (self.boom_angle + 840.0 * dt * self.boom_dir) % 360.0
+        self.boom_trail.append((self.boom_x, self.boom_y, self.boom_angle))
+        if len(self.boom_trail) > 4:
+            self.boom_trail.pop(0)
+        if self.boom_phase == "out":
+            decel = (BOOMERANG_SPEED / BOOMERANG_OUT_TIME) * self.k
+            self.boom_vx -= self.boom_dir * decel * dt
+            self.boom_x += self.boom_vx * dt
+            self.boom_y += math.sin(self.boom_t * 10.0) * 18.0 * self.k * dt
+            if self.boom_vx * self.boom_dir <= 0 or self.boom_t >= BOOMERANG_OUT_TIME:
+                self.boom_phase = "return"
+                self.boom_ret_t = 0.0
+                self.swing_hit = set()   # allow hitting enemies again on return
+        else:
+            self.boom_ret_t += dt
+            tx, ty = self.x, self.y - self.H * 0.58
+            dx, dy = tx - self.boom_x, ty - self.boom_y
+            dist = math.hypot(dx, dy)
+            if dist < 28.0 * self.k or self.boom_t >= BOOMERANG_MAX_TIME:
+                self.boom_active = False
+                self.boom_trail.clear()
+            else:
+                spd = min(1200.0 * self.k, 360.0 * self.k + self.boom_ret_t * 1650.0 * self.k)
+                self.boom_x += (dx / dist) * spd * dt
+                self.boom_y += (dy / dist) * spd * dt
+
+    def _draw_boomerang(self, surf, ox: float, oy: float) -> None:
+        if not self.boom_active:
+            return
+        alphas = (45, 80, 120, 165)
+        offset = max(0, len(alphas) - len(self.boom_trail))
+        for i, (tx, ty, tang) in enumerate(self.boom_trail):
+            ghost = pygame.transform.rotate(self.boomerang_img, -tang)
+            ghost.set_alpha(alphas[offset + i])
+            surf.blit(ghost, ghost.get_rect(center=(int(tx - ox), int(ty - oy))))
+        rot = pygame.transform.rotate(self.boomerang_img, -self.boom_angle)
+        surf.blit(rot, rot.get_rect(center=(int(self.boom_x - ox), int(self.boom_y - oy))))
+
     def _draw_charge(self, surf, ox, oy) -> None:
         if self.charge > 0.15:
             k = min(1.0, self.charge / CHARGE_TIME)
@@ -329,41 +405,12 @@ class Pilot:
         return out, bob
 
     def draw(self, surf, ox: float, oy: float) -> None:
+        self._draw_boomerang(surf, ox, oy)
         self._draw_charge(surf, ox, oy)
         if self.invuln > 0 and int(self.invuln * 20) % 2:
             return
-        if self.swinging and self.spear:
-            img = self.idle if self.facing > 0 else self.idle_l
-            k = 1 - self.swing_t / SPEAR_TIME
-            reach = (40 + 96 * math.sin(min(1.0, k * 1.6) * math.pi / 2)) * self.k
-            u = max(2, int(round(self.k)))
-            y0 = int(self.y - oy - self.H * 0.55) // 2 * 2
-            x0 = int(self.x - ox + self.facing * 6 * self.k) // 2 * 2
-            f = self.facing
-            butt = int(x0 - f * 26 * self.k) // 2 * 2
-            tip = int(x0 + f * reach) // 2 * 2
-            sx0, sx1 = min(butt, tip), max(butt, tip)
-            # Titanium alloy shaft with dark outline & top specular edge (matches Voyager suit)
-            pygame.draw.rect(surf, (22, 30, 46), (sx0, y0 - 2 * u, sx1 - sx0, 4 * u))
-            pygame.draw.rect(surf, (84, 110, 146), (sx0, y0 - u, sx1 - sx0, 2 * u))
-            pygame.draw.rect(surf, (165, 195, 230), (sx0, y0 - u, sx1 - sx0, u))
-            # Gold counterweight pommel at the rear
-            pygame.draw.rect(surf, (225, 175, 70), (butt - (3 * u if f > 0 else 0), y0 - 2 * u, 3 * u, 4 * u))
-            # Gold/cyan ion emitter collar behind the blade
-            cx = tip - f * 4 * u
-            pygame.draw.rect(surf, (255, 205, 90), (cx - 2 * u, y0 - 3 * u, 4 * u, 6 * u))
-            pygame.draw.rect(surf, (100, 235, 255), (cx - u, y0 - 2 * u, 2 * u, 4 * u))
-            # Stepped pixel-art Ion Blade + white-hot core
-            blade_len = 16 * u
-            pygame.draw.polygon(surf, (45, 175, 240),
-                                [(tip, y0 - 4 * u), (tip + f * blade_len, y0), (tip, y0 + 4 * u)])
-            pygame.draw.polygon(surf, (125, 238, 255),
-                                [(tip, y0 - 2 * u), (tip + f * (blade_len - 3 * u), y0), (tip, y0 + 2 * u)])
-            pygame.draw.polygon(surf, (235, 252, 255),
-                                [(tip, y0 - u), (tip + f * (blade_len - 6 * u), y0), (tip, y0 + u)])
-            if k < 0.75:
-                pulse_x = tip - f * int(6 * u * k)
-                pygame.draw.line(surf, (140, 240, 255), (pulse_x, y0 - 5 * u), (pulse_x, y0 + 5 * u), max(2, u))
+        if self.swinging and self.boomerang:
+            img = (self.swing_r if self.facing > 0 else self.swing_l)[2]
         elif self.swinging:
             idx = min(3, int((1 - self.swing_t / SWING_TIME) * 4))
             img = (self.swing_r if self.facing > 0 else self.swing_l)[idx]

@@ -175,9 +175,9 @@ class SurfaceScene(Scene):
         elif e.key == pygame.K_o and abs(self.pilot.x) < 300 and self.dead_t < 0:
             from .outpost import OutpostScene
             self.game.scenes.push(OutpostScene(self.game, self.planet))
-        elif e.key == pygame.K_q and "spear" in self.game.state.weapons:
+        elif e.key == pygame.K_q and ("boomerang" in self.game.state.weapons or "spear" in self.game.state.weapons):
             st = self.game.state
-            st.foot_weapon = "spear" if st.foot_weapon == "sword" else "sword"
+            st.foot_weapon = "boomerang" if st.foot_weapon == "sword" else "sword"
             from ..systems.items import FOOT_WEAPONS
             self.game.toasts.add(f"Equipped: {FOOT_WEAPONS[st.foot_weapon]['name']}", (200, 220, 255), 1.5)
         elif e.key == pygame.K_e and self.dead_t < 0:

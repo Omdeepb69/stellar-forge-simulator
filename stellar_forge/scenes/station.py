@@ -148,10 +148,10 @@ class StationScene(Scene):
                            None if owned else (lambda k=wid: self._buy_weapon(k)),
                            icon="blaster" if wid == "blaster" else "w_missile", verb="" if owned else "Buy",
                            stat=("Status", "owned" if owned else "for sale")))
-        sp = FOOT_WEAPONS["spear"]
-        owned = "spear" in st.weapons
+        sp = FOOT_WEAPONS["boomerang"]
+        owned = "boomerang" in st.weapons or "spear" in st.weapons
         out.append(Row(sp["name"], sp["desc"] + " Swap on foot with Q.", None if owned else int(800 * self.mult),
-                       None if owned else (lambda: self._buy_weapon("spear")), icon="blaster",
+                       None if owned else (lambda: self._buy_weapon("boomerang")), icon="blaster",
                        verb="" if owned else "Buy", stat=("Status", "owned" if owned else "for sale")))
         return out
 
@@ -306,12 +306,12 @@ class StationScene(Scene):
         self.game.audio.play("pickup")
 
     def _buy_weapon(self, wid):
-        cost = 800 if wid == "spear" else WEAPONS[wid]["price"]
+        cost = 800 if wid == "boomerang" else WEAPONS[wid]["price"]
         if self._pay(int(cost * self.mult)):
             st = self.game.state
             st.weapons.append(wid)
-            if wid == "spear":
-                st.foot_weapon = "spear"
+            if wid == "boomerang":
+                st.foot_weapon = "boomerang"
             else:
                 st.weapon = wid
             self.game.toasts.add("Installed. Press Q to switch weapons.", config.UI_GOOD, icon="blaster")

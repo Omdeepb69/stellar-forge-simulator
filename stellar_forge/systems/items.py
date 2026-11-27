@@ -29,7 +29,7 @@ WEAPONS = {
 }
 FOOT_WEAPONS = {
     "sword": dict(name="Voyager's Blade", desc="Fast arcs. Reflects energy orbs."),
-    "spear": dict(name="Ion Spear", desc="Long reach, slower thrusts, heavy damage."),
+    "boomerang": dict(name="Plasma Boomerang", desc="Flies forward and returns, slicing enemies both ways."),
 }
 
 # ---------------------------------------------------------------- loot mods
