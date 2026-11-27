@@ -239,6 +239,8 @@ class SurfaceScene(Scene):
                                 random.uniform(2, 4), dust_col, drag=3)
         for x, y, vx, power in shots:
             self.bolts.append([x, y, vx, 0.9, power, set()])
+            if self.game.net is not None:
+                self.game.net.send_shot("bolt", x, y, vx, 0.0, power)
         self.camera.follow(p.x, p.y, dt)
         cdx, cdy = self.camera.x - self._last_cam[0], self.camera.y - self._last_cam[1]
         self._last_cam = (self.camera.x, self.camera.y)
@@ -555,6 +557,8 @@ class SurfaceScene(Scene):
         for c in self.creatures.values():
             if -100 < c.x - ox < config.SCREEN_W + 100:
                 c.draw(surf, ox, oy)
+        if self.game.net is not None:
+            self.game.net.draw_surface(surf, ox, oy, self.planet.id)
         if self.dead_t < 0:
             self.pilot.draw(surf, ox, oy)
         for bx, by, vx, _l, power, _hit in self.bolts:

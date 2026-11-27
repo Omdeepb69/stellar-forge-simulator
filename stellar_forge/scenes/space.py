@@ -468,6 +468,9 @@ class SpaceScene(Scene):
 
         new_bullets = ship.update(dt, ctl, acc, match_vel, self.particles)
         self.bullets.extend(new_bullets)
+        if self.game.net is not None:
+            for b in new_bullets:
+                self.game.net.send_shot("bullet", b.pos.x, b.pos.y, b.vel.x, b.vel.y, b.damage, b.color)
         self.director.update(dt)
         self._update_extras(dt)
         self._space_hints()
@@ -659,7 +662,11 @@ class SpaceScene(Scene):
                         b.alive = False
                         self.particles.burst(b.pos.x, b.pos.y, 6, 120, [(160, 255, 200)], life=(0.1, 0.3))
                         self.floaters.damage(e.pos.x, e.pos.y - e.radius, b.damage, crit=isinstance(b, Missile))
-                        if e.hurt(b.damage):
+                        if self.game.net is not None and not self.game.net.is_host:
+                            self.game.net.send_enemy_hit(getattr(e, "_net_eid", 0), b.damage)
+                            e.hit_flash = 0.12
+                            self.game.audio.play("hit", 0.3)
+                        elif e.hurt(b.damage):
                             self._enemy_killed(e)
                         else:
                             self.game.audio.play("hit", 0.3)
@@ -807,6 +814,8 @@ class SpaceScene(Scene):
             self.pickups.append(Pickup(ap, "fuel", random.randint(25, 60)))
 
     def _spawn(self, dt) -> None:
+        if self.game.net is not None and not self.game.net.is_host:
+            return
         q = self.game.quests
         ship = self.ship
         self.spawn_timer -= dt
@@ -948,6 +957,8 @@ class SpaceScene(Scene):
             e.draw(surf, cam)
         for b in self.bullets:
             b.draw(surf, cam)
+        if self.game.net is not None:
+            self.game.net.draw_space(surf, cam)
         if self.dead_timer < 0:
             self.ship.draw(surf, cam, self.clock)
         self.particles.draw(surf, cam.to_screen, max(0.5, cam.zoom))

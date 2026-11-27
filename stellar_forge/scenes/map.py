@@ -268,6 +268,11 @@ class MapScene(Scene):
         sp = to_map(ship)
         fwd = self.space.ship.forward
         pygame.draw.polygon(surf, (255, 255, 255), [sp + fwd * 9, sp + fwd.rotate(140) * 7, sp + fwd.rotate(-140) * 7])
+        if g.net is not None:
+            for peer in g.net.peers.values():
+                pp = to_map((peer.rx, peer.ry))
+                pygame.draw.circle(surf, peer.color, (int(pp.x), int(pp.y)), 5)
+                text(surf, peer.name, (pp.x, pp.y - 8), 11, peer.color, bold=True, anchor="midbottom")
         if cell <= 54:
             home = to_map(u.sector(0, 0).system_center)
             text(surf, "Haven", (home.x, home.y - 10), 12, (255, 230, 160), anchor="midbottom")

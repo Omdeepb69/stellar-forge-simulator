@@ -37,7 +37,8 @@ MENU_ICONS = {"Continue": "play", "New Game": "plus", "Load Game": "folder", "Lo
               "Settings": "gear", "Credits": "star", "Quit": "door", "New Game +": "star", "Resume": "play",
               "Save game": "folder", "Controls": "gear", "Save & quit to title": "door", "Launch": "play",
               "Random seed": "plus", "Back": "door", "Title screen": "door", "New game": "plus",
-              "Continue from last save": "play"}
+              "Continue from last save": "play", "Host Co-op": "star", "Join Co-op": "plus",
+              "Disconnect": "door"}
 
 
 class Menu:
@@ -308,6 +309,8 @@ class TitleScene(Scene):
         if self.save and self.save.forge_restored:
             items.append(("New Game +", self._ng_plus, "New galaxy, harder foes, keep your gear"))
         items += [("Logbook", self._logbook, "Achievements, codex and stats"),
+                  ("Host Co-op", self._host, "Host a LAN/IP co-op game"),
+                  ("Join Co-op", self._join, "Join a friend's co-op game"),
                   ("Settings", self._settings, "Audio, display, controls and comfort"),
                   ("Controls", self._help, "Flight, surface and gamepad bindings"),
                   ("Credits", self._credits, ""),
@@ -357,6 +360,12 @@ class TitleScene(Scene):
 
     def _credits(self):
         self.game.scenes.push(CreditsScene(self.game))
+
+    def _host(self):
+        self.game.scenes.push(HostScene(self.game))
+
+    def _join(self):
+        self.game.scenes.push(JoinScene(self.game))
 
     def _quit(self):
         self.game.running = False
@@ -832,6 +841,8 @@ class PauseScene(Scene):
         items = [("Resume", self._resume), ("Logbook", self._logbook)]
         if allow_save:
             items.append(("Save game", self._save))
+        if game.net is not None:
+            items.append(("Disconnect", self._disconnect))
         items += [("Settings", self._settings), ("Controls", self._help), ("Save & quit to title", self._title)]
         self.menu = Menu(items, 250, game)
 
@@ -852,9 +863,15 @@ class PauseScene(Scene):
     def _help(self):
         self.game.scenes.push(ControlsScene(self.game))
 
+    def _disconnect(self):
+        self.game.stop_multiplayer()
+        self.game.toasts.add("Disconnected from co-op", config.UI_WARN, 2.5)
+        self.game.scenes.pop()
+
     def _title(self):
         if self.game.state and self.game.state.hull > 0 and self.game.state.pilot_hp > 0:
             self.game.save()
+        self.game.stop_multiplayer()
         self.game.audio.loop("thrust", False)
         self.game.scenes.switch(TitleScene(self.game))
 
@@ -881,6 +898,159 @@ class PauseScene(Scene):
             text(surf, f"{rank(st)}  ·  played {fmt_time(st.play_time)}  ·  Keys {len(st.relics)}/3"
                        + (f"  ·  Shards {len(st.shards)}/5" if st.boss_defeated else ""),
                  (config.SCREEN_W // 2, 210), 15, (180, 200, 230), anchor="center")
+        self.menu.draw(surf)
+
+
+class HostScene(Scene):
+    """Launch a co-op host and show the IP + port for friends to join."""
+    is_overlay = True
+    menu = True
+
+    def __init__(self, game):
+        super().__init__(game)
+        self.started = False
+        self.ip = ""
+        self.port = 0
+        self.error = ""
+        self.menu = Menu([("Start hosting", self._start), ("Back", self._back)], 420, game, 400)
+        self.menu.ROW = 48
+
+    def _start(self):
+        if self.started:
+            return
+        try:
+            from ..net import local_ip
+            port = self.game.host_multiplayer()
+            self.ip = local_ip()
+            self.port = port
+            self.started = True
+            self.menu = Menu([("Continue to game", self._play), ("Back", self._back)], 420, self.game, 400)
+            self.menu.ROW = 48
+        except Exception as exc:
+            self.error = str(exc)[:60]
+
+    def _play(self):
+        if not self.game.state:
+            self.game.new_game()
+        if not self.game.scenes.has(type(self.game.space)):
+            self.game._begin(self.game.state)
+        self.game.scenes.pop()
+
+    def _back(self):
+        if self.started:
+            self.game.stop_multiplayer()
+        self.game.scenes.pop()
+
+    def handle_event(self, e) -> None:
+        if e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE:
+            self._back()
+            return
+        self.menu.handle(e)
+
+    def update(self, dt) -> None:
+        self.menu.update(dt)
+        if self.started and self.game.net:
+            self.game.net.update(dt)
+
+    def draw(self, surf) -> None:
+        veil(surf, 220)
+        text(surf, "HOST CO-OP", (config.SCREEN_W // 2, 170), 36, GOLD, bold=True, anchor="center")
+        if self.error:
+            text(surf, f"Error: {self.error}", (config.SCREEN_W // 2, 220), 18, config.UI_DANGER, anchor="center")
+        elif self.started:
+            text(surf, "Friends can join with this address:", (config.SCREEN_W // 2, 220), 17, CYAN, anchor="center")
+            text(surf, f"{self.ip}:{self.port}", (config.SCREEN_W // 2, 258), 30, (255, 255, 255),
+                 bold=True, anchor="center")
+            n = self.game.net.peer_count() if self.game.net else 1
+            text(surf, f"{n} player{'s' if n != 1 else ''} connected", (config.SCREEN_W // 2, 300), 16, CYAN,
+                 anchor="center")
+        else:
+            text(surf, "Start hosting to get your LAN IP for friends to join.",
+                 (config.SCREEN_W // 2, 230), 16, (200, 210, 230), anchor="center")
+        self.menu.draw(surf)
+
+
+class JoinScene(Scene):
+    """Enter a host IP and connect as a co-op client."""
+    is_overlay = True
+    menu = True
+
+    def __init__(self, game):
+        super().__init__(game)
+        self.ip = ""
+        self.port_str = "50556"
+        self.name = "Voyager"
+        self.editing = "ip"  # ip, port, or name
+        self.error = ""
+        self.menu = Menu([("Connect", self._connect), ("Back", self._back)], 420, game, 450)
+        self.menu.ROW = 48
+
+    def _connect(self):
+        try:
+            port = int(self.port_str) if self.port_str else 50556
+            ip = self.ip.strip()
+            if not ip:
+                self.error = "Enter a host IP address"
+                return
+            self.game.join_multiplayer(ip, port=port, name=self.name or "Voyager")
+            self.game.scenes.pop()
+        except Exception as exc:
+            self.error = str(exc)[:60]
+            self.game.stop_multiplayer()
+
+    def _back(self):
+        self.game.scenes.pop()
+
+    def handle_event(self, e) -> None:
+        if e.type == pygame.KEYDOWN:
+            if e.key == pygame.K_ESCAPE:
+                self._back()
+                return
+            if e.key == pygame.K_TAB:
+                fields = ["ip", "port", "name"]
+                i = fields.index(self.editing)
+                self.editing = fields[(i + 1) % len(fields)]
+                self.game.audio.play("ui", 0.3)
+                return
+            if e.key == pygame.K_BACKSPACE:
+                if self.editing == "ip":
+                    self.ip = self.ip[:-1]
+                elif self.editing == "port":
+                    self.port_str = self.port_str[:-1]
+                elif self.editing == "name":
+                    self.name = self.name[:-1]
+                return
+            if e.unicode and len(e.unicode) == 1 and e.key != pygame.K_RETURN:
+                if self.editing == "ip" and len(self.ip) < 21:
+                    self.ip += e.unicode
+                elif self.editing == "port" and e.unicode.isdigit() and len(self.port_str) < 5:
+                    self.port_str += e.unicode
+                elif self.editing == "name" and len(self.name) < 16:
+                    self.name += e.unicode
+                self.game.audio.play("ui", 0.2)
+                return
+        self.menu.handle(e)
+
+    def update(self, dt) -> None:
+        self.menu.update(dt)
+
+    def draw(self, surf) -> None:
+        veil(surf, 220)
+        text(surf, "JOIN CO-OP", (config.SCREEN_W // 2, 160), 36, GOLD, bold=True, anchor="center")
+        if self.error:
+            text(surf, f"Error: {self.error}", (config.SCREEN_W // 2, 210), 16, config.UI_DANGER, anchor="center")
+        cx = config.SCREEN_W // 2
+        y0 = 240
+        fields = [("Host IP", "ip", self.ip), ("Port", "port", self.port_str), ("Your name", "name", self.name)]
+        for label, fid, val in fields:
+            col = (255, 255, 255) if self.editing == fid else (160, 170, 190)
+            box_col = GOLD if self.editing == fid else (60, 70, 90)
+            text(surf, label, (cx - 150, y0), 16, col, anchor="midright")
+            blink = "_" if self.editing == fid and int(pygame.time.get_ticks() / 500) % 2 == 0 else ""
+            pygame.draw.rect(surf, box_col, (cx - 130, y0 - 14, 300, 28), 2, border_radius=4)
+            text(surf, val + blink, (cx - 120, y0), 17, (255, 255, 255), anchor="midleft")
+            y0 += 48
+        text(surf, "Tab to switch fields", (cx, y0 + 6), 13, (120, 140, 170), anchor="midtop")
         self.menu.draw(surf)
 
 

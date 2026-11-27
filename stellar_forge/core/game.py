@@ -55,6 +55,7 @@ class Game:
         self.universe: Universe | None = None
         self.quests: QuestManager | None = None
         self._space_scene = None
+        self.net = None
         self.running = True
         self.hitstop = 0.0
         self.slow_t = 0.0
@@ -181,6 +182,54 @@ class Game:
     def space(self):
         return self._space_scene
 
+    def host_multiplayer(self, port: int = 50556, name: str = "Voyager-1") -> int:
+        """Open the current (or a fresh) galaxy as a LAN/Direct-IP co-op host."""
+        from ..net import NetHost, NetSync
+        self.stop_multiplayer()
+        if self.state is None:
+            self.new_game()
+        host = NetHost(host_name=name, port=port)
+        host.welcome_fn = lambda: {
+            "seed": self.state.seed,
+            "chapter": self.state.chapter,
+            "keys": sorted(self.state.keys),
+            "shards": sorted(self.state.shards),
+            "boss_defeated": self.state.boss_defeated,
+            "destroyed": list(self.state.destroyed),
+            "ending": self.state.ending,
+            "ng_plus": self.state.ng_plus,
+        }
+        bound = host.start()
+        self.net = NetSync(self, host)
+        return bound
+
+    def join_multiplayer(self, host_ip: str, port: int = 50556, name: str = "Voyager") -> None:
+        """Connect to a co-op host and enter their seeded galaxy."""
+        from ..net import NetClient, NetSync
+        self.stop_multiplayer()
+        client = NetClient(host_ip, port=port, name=name)
+        w = client.connect()
+        ch = max(2, int(w.get("chapter", 2)))  # join in space ready to fly with host
+        st = GameState(
+            seed=int(w["seed"]),
+            chapter=ch,
+            keys=set(w.get("keys", ())),
+            shards=set(w.get("shards", ())),
+            boss_defeated=bool(w.get("boss_defeated", False)),
+            destroyed=list(w.get("destroyed", ())),
+            ending=str(w.get("ending", "")),
+            ng_plus=int(w.get("ng_plus", 0)),
+            location={"kind": "space", "near": "0,0:st"},
+        )
+        self._begin(st)
+        self.net = NetSync(self, client)
+        self.toasts.add(f"Connected to {host_ip}:{port}", config.UI_GOOD, 3.0)
+
+    def stop_multiplayer(self) -> None:
+        if self.net is not None:
+            self.net.stop()
+            self.net = None
+
     def land(self, planet) -> None:
         from ..scenes.surface import SurfaceScene
         self.state.location = {"kind": "surface", "planet": planet.id}
@@ -282,6 +331,7 @@ class Game:
                 errors += 5
                 self._recover(errors)
         self.settings.save()
+        self.stop_multiplayer()
         self.audio.stop_all()
         pygame.quit()
 
@@ -350,6 +400,8 @@ class Game:
             self.state.play_time += real_dt
             self.achievements.update(real_dt)
         self.scenes.update(dt)
+        if self.net is not None:
+            self.net.update(real_dt)
         self.music.play(self._music_for_stack())
         self.music.update(real_dt)
         self.dialogue.update(real_dt)
