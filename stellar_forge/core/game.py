@@ -182,14 +182,8 @@ class Game:
     def space(self):
         return self._space_scene
 
-    def host_multiplayer(self, port: int = 50556, name: str = "Voyager-1") -> int:
-        """Open the current (or a fresh) galaxy as a LAN/Direct-IP co-op host."""
-        from ..net import NetHost, NetSync
-        self.stop_multiplayer()
-        if self.state is None:
-            self.new_game()
-        host = NetHost(host_name=name, port=port)
-        host.welcome_fn = lambda: {
+    def _welcome_payload(self) -> dict:
+        return {
             "seed": self.state.seed,
             "chapter": self.state.chapter,
             "keys": sorted(self.state.keys),
@@ -199,16 +193,10 @@ class Game:
             "ending": self.state.ending,
             "ng_plus": self.state.ng_plus,
         }
-        bound = host.start()
-        self.net = NetSync(self, host)
-        return bound
 
-    def join_multiplayer(self, host_ip: str, port: int = 50556, name: str = "Voyager") -> None:
-        """Connect to a co-op host and enter their seeded galaxy."""
-        from ..net import NetClient, NetSync
-        self.stop_multiplayer()
-        client = NetClient(host_ip, port=port, name=name)
-        w = client.connect()
+    def _enter_remote_galaxy(self, client, label: str) -> None:
+        from ..net import NetSync
+        w = client.welcome
         ch = max(2, int(w.get("chapter", 2)))  # join in space ready to fly with host
         st = GameState(
             seed=int(w["seed"]),
@@ -223,7 +211,47 @@ class Game:
         )
         self._begin(st)
         self.net = NetSync(self, client)
-        self.toasts.add(f"Connected to {host_ip}:{port}", config.UI_GOOD, 3.0)
+        self.toasts.add(f"Connected to {label}", config.UI_GOOD, 3.0)
+
+    def host_multiplayer(self, port: int = 50556, name: str = "Voyager-1") -> int:
+        """Open the current (or a fresh) galaxy as a LAN/Direct-IP co-op host."""
+        from ..net import NetHost, NetSync
+        self.stop_multiplayer()
+        if self.state is None:
+            self.new_game()
+        host = NetHost(host_name=name, port=port)
+        host.welcome_fn = self._welcome_payload
+        bound = host.start()
+        self.net = NetSync(self, host)
+        return bound
+
+    def host_relay(self, relay_host: str, relay_port: int = 50557, name: str = "Voyager-1") -> str:
+        """Host the current (or a fresh) galaxy through a Room-Code relay server."""
+        from ..net import NetSync, RelayHost
+        self.stop_multiplayer()
+        if self.state is None:
+            self.new_game()
+        host = RelayHost(relay_host, relay_port, host_name=name)
+        host.welcome_fn = self._welcome_payload
+        code = host.start()
+        self.net = NetSync(self, host)
+        return code
+
+    def join_multiplayer(self, host_ip: str, port: int = 50556, name: str = "Voyager") -> None:
+        """Connect to a co-op host via IP:port and enter their seeded galaxy."""
+        from ..net import NetClient
+        self.stop_multiplayer()
+        client = NetClient(host_ip, port=port, name=name)
+        client.connect()
+        self._enter_remote_galaxy(client, f"{host_ip}:{port}")
+
+    def join_relay(self, relay_host: str, relay_port: int = 50557, code: str = "", name: str = "Voyager") -> None:
+        """Connect to a co-op host via a 6-character Room Code on a relay server."""
+        from ..net import RelayClient
+        self.stop_multiplayer()
+        client = RelayClient(relay_host, relay_port, code=code, name=name)
+        client.connect()
+        self._enter_remote_galaxy(client, f"Room {client.code}")
 
     def stop_multiplayer(self) -> None:
         if self.net is not None:

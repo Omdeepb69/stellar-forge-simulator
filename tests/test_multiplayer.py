@@ -177,3 +177,50 @@ def test_lan_discovery():
     assert isinstance(found, list)
 
     host.stop()
+
+
+def test_relay_room_create_join_and_broadcast(game):
+    """RelayHost & RelayClient connect through RelayServer using a 6-char room code."""
+    from stellar_forge.net.relay import RelayClient, RelayHost, RelayServer
+
+    srv = RelayServer("127.0.0.1", port=0)
+    rport = srv.start()
+    assert rport > 0
+
+    host = RelayHost("127.0.0.1", rport, host_name="RelayHost")
+    host.welcome_fn = lambda: {"seed": 777, "chapter": 4}
+    code = host.start()
+    assert len(code) == 6
+
+    client = RelayClient("127.0.0.1", rport, code=code, name="RelayGuest")
+    welcome = client.connect()
+    assert welcome["seed"] == 777
+    assert welcome["pid"] >= 1
+
+    time.sleep(0.1)
+    assert len(host.player_list()) == 2
+
+    host.broadcast({"t": "relay_ping", "ok": True})
+    time.sleep(0.15)
+    got = []
+    while not client.inbox.empty():
+        got.append(client.inbox.get_nowait())
+    assert any(m.get("t") == "relay_ping" and m.get("ok") for m in got)
+
+    client.stop()
+    time.sleep(0.15)
+    assert len(host.player_list()) == 1
+
+    host.stop()
+    srv.stop()
+
+
+def test_relay_invalid_code_rejects():
+    """Joining a non-existent room code raises ConnectionError."""
+    from stellar_forge.net.relay import RelayClient, RelayServer
+
+    srv = RelayServer("127.0.0.1", port=0)
+    rport = srv.start()
+    with pytest.raises(ConnectionError, match="not found"):
+        RelayClient("127.0.0.1", rport, code="ZZZZZZ", name="Lost").connect()
+    srv.stop()

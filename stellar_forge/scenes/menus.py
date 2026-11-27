@@ -902,32 +902,68 @@ class PauseScene(Scene):
 
 
 class HostScene(Scene):
-    """Launch a co-op host and show the IP + port for friends to join."""
+    """Launch a co-op host via LAN/Direct-IP or Room-Code Relay."""
     is_overlay = True
     menu = True
 
     def __init__(self, game):
         super().__init__(game)
+        import os
         self.started = False
+        self.mode = ""
         self.ip = ""
         self.port = 0
+        self.room_code = ""
+        self.relay_addr = os.environ.get("STELLAR_RELAY", "127.0.0.1:50557")
+        self.editing_relay = False
         self.error = ""
-        self.menu = Menu([("Start hosting", self._start), ("Back", self._back)], 420, game, 400)
-        self.menu.ROW = 48
+        self.menu = Menu([
+            ("Host LAN / Direct IP", self._start_lan),
+            ("Host Room Code (Relay)", self._start_relay),
+            ("Edit Relay Server", self._toggle_relay_edit),
+            ("Back", self._back),
+        ], 410, game, 420)
+        self.menu.ROW = 44
 
-    def _start(self):
+    @staticmethod
+    def _parse_addr(addr: str, default_port: int = 50557) -> tuple[str, int]:
+        raw = addr.strip()
+        if ":" in raw:
+            h, p = raw.rsplit(":", 1)
+            return h.strip() or "127.0.0.1", int(p)
+        return raw or "127.0.0.1", default_port
+
+    def _start_lan(self):
         if self.started:
             return
         try:
             from ..net import local_ip
-            port = self.game.host_multiplayer()
+            self.port = self.game.host_multiplayer()
             self.ip = local_ip()
-            self.port = port
+            self.mode = "lan"
             self.started = True
+            self.error = ""
             self.menu = Menu([("Continue to game", self._play), ("Back", self._back)], 420, self.game, 400)
             self.menu.ROW = 48
         except Exception as exc:
             self.error = str(exc)[:60]
+
+    def _start_relay(self):
+        if self.started:
+            return
+        try:
+            rh, rp = self._parse_addr(self.relay_addr)
+            self.room_code = self.game.host_relay(rh, rp)
+            self.mode = "relay"
+            self.started = True
+            self.error = ""
+            self.menu = Menu([("Continue to game", self._play), ("Back", self._back)], 420, self.game, 400)
+            self.menu.ROW = 48
+        except Exception as exc:
+            self.error = str(exc)[:60]
+
+    def _toggle_relay_edit(self):
+        self.editing_relay = not self.editing_relay
 
     def _play(self):
         if not self.game.state:
@@ -942,9 +978,21 @@ class HostScene(Scene):
         self.game.scenes.pop()
 
     def handle_event(self, e) -> None:
-        if e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE:
-            self._back()
-            return
+        if e.type == pygame.KEYDOWN:
+            if e.key == pygame.K_ESCAPE:
+                if self.editing_relay:
+                    self.editing_relay = False
+                else:
+                    self._back()
+                return
+            if self.editing_relay:
+                if e.key == pygame.K_RETURN:
+                    self.editing_relay = False
+                elif e.key == pygame.K_BACKSPACE:
+                    self.relay_addr = self.relay_addr[:-1]
+                elif e.unicode and len(e.unicode) == 1 and len(self.relay_addr) < 32:
+                    self.relay_addr += e.unicode
+                return
         self.menu.handle(e)
 
     def update(self, dt) -> None:
@@ -954,45 +1002,88 @@ class HostScene(Scene):
 
     def draw(self, surf) -> None:
         veil(surf, 220)
-        text(surf, "HOST CO-OP", (config.SCREEN_W // 2, 170), 36, GOLD, bold=True, anchor="center")
+        cx = config.SCREEN_W // 2
+        text(surf, "HOST CO-OP", (cx, 150), 36, GOLD, bold=True, anchor="center")
         if self.error:
-            text(surf, f"Error: {self.error}", (config.SCREEN_W // 2, 220), 18, config.UI_DANGER, anchor="center")
-        elif self.started:
-            text(surf, "Friends can join with this address:", (config.SCREEN_W // 2, 220), 17, CYAN, anchor="center")
-            text(surf, f"{self.ip}:{self.port}", (config.SCREEN_W // 2, 258), 30, (255, 255, 255),
-                 bold=True, anchor="center")
+            text(surf, f"Error: {self.error}", (cx, 200), 17, config.UI_DANGER, anchor="center")
+        elif self.started and self.mode == "relay":
+            text(surf, "Share this Room Code with friends:", (cx, 205), 17, CYAN, anchor="center")
+            text(surf, self.room_code, (cx, 252), 42, (255, 235, 130), bold=True, anchor="center")
             n = self.game.net.peer_count() if self.game.net else 1
-            text(surf, f"{n} player{'s' if n != 1 else ''} connected", (config.SCREEN_W // 2, 300), 16, CYAN,
-                 anchor="center")
+            text(surf, f"{n} player{'s' if n != 1 else ''} connected  ·  Relay {self.relay_addr}",
+                 (cx, 304), 15, CYAN, anchor="center")
+        elif self.started:
+            text(surf, "Friends on your Wi-Fi / LAN can join:", (cx, 205), 17, CYAN, anchor="center")
+            text(surf, f"{self.ip}:{self.port}", (cx, 250), 30, (255, 255, 255), bold=True, anchor="center")
+            n = self.game.net.peer_count() if self.game.net else 1
+            text(surf, f"{n} player{'s' if n != 1 else ''} connected", (cx, 296), 16, CYAN, anchor="center")
         else:
-            text(surf, "Start hosting to get your LAN IP for friends to join.",
-                 (config.SCREEN_W // 2, 230), 16, (200, 210, 230), anchor="center")
+            text(surf, "Host on LAN (same Wi-Fi) or via a Relay Room Code (any network).",
+                 (cx, 205), 16, (200, 210, 230), anchor="center")
+            col = GOLD if self.editing_relay else (130, 150, 180)
+            blink = "_" if self.editing_relay and int(pygame.time.get_ticks() / 500) % 2 == 0 else ""
+            text(surf, f"Relay: {self.relay_addr}{blink}", (cx, 245), 16, col, anchor="center")
+            if self.editing_relay:
+                text(surf, "Type host:port and press Enter", (cx, 272), 13, CYAN, anchor="center")
         self.menu.draw(surf)
 
 
 class JoinScene(Scene):
-    """Enter a host IP and connect as a co-op client."""
+    """Join a co-op host via LAN auto-discovery, Direct IP, or Room Code."""
     is_overlay = True
     menu = True
 
     def __init__(self, game):
         super().__init__(game)
-        self.ip = ""
-        self.port_str = "50556"
+        import os
+        self.target = ""        # Host IP:Port OR 6-char Room Code
+        self.relay_addr = os.environ.get("STELLAR_RELAY", "127.0.0.1:50557")
         self.name = "Voyager"
-        self.editing = "ip"  # ip, port, or name
+        self.editing = "target"  # target, relay, or name
         self.error = ""
-        self.menu = Menu([("Connect", self._connect), ("Back", self._back)], 420, game, 450)
-        self.menu.ROW = 48
+        self.lan_hosts: list[dict] = []
+        self._scan_lan()
+
+    def _scan_lan(self) -> None:
+        from ..net import discover_lan
+        self.lan_hosts = discover_lan(timeout=0.25)
+        items = []
+        for h in self.lan_hosts[:3]:
+            lbl = f"LAN: {h['name']} ({h['players']}/{h['max_players']})"
+            items.append((lbl, lambda h=h: self._connect_lan(h)))
+        items += [
+            ("Connect (IP or Room Code)", self._connect),
+            ("Rescan LAN", self._scan_lan),
+            ("Back", self._back),
+        ]
+        self.menu = Menu(items, 445, self.game, 450)
+        self.menu.ROW = 42
+
+    def _connect_lan(self, h: dict) -> None:
+        try:
+            self.game.join_multiplayer(h["ip"], port=int(h["port"]), name=self.name or "Voyager")
+            self.game.scenes.pop()
+        except Exception as exc:
+            self.error = str(exc)[:60]
+            self.game.stop_multiplayer()
 
     def _connect(self):
         try:
-            port = int(self.port_str) if self.port_str else 50556
-            ip = self.ip.strip()
-            if not ip:
-                self.error = "Enter a host IP address"
+            raw = self.target.strip()
+            if not raw:
+                self.error = "Enter a Host IP or 6-char Room Code"
                 return
-            self.game.join_multiplayer(ip, port=port, name=self.name or "Voyager")
+            # Heuristic: if it contains '.' or ':', treat as IP[:port]; otherwise Room Code via Relay
+            if "." in raw or ":" in raw:
+                if ":" in raw:
+                    ip, p = raw.rsplit(":", 1)
+                    port = int(p)
+                else:
+                    ip, port = raw, 50556
+                self.game.join_multiplayer(ip.strip(), port=port, name=self.name or "Voyager")
+            else:
+                rh, rp = HostScene._parse_addr(self.relay_addr)
+                self.game.join_relay(rh, rp, code=raw.upper(), name=self.name or "Voyager")
             self.game.scenes.pop()
         except Exception as exc:
             self.error = str(exc)[:60]
@@ -1007,24 +1098,23 @@ class JoinScene(Scene):
                 self._back()
                 return
             if e.key == pygame.K_TAB:
-                fields = ["ip", "port", "name"]
-                i = fields.index(self.editing)
-                self.editing = fields[(i + 1) % len(fields)]
+                fields = ["target", "relay", "name"]
+                self.editing = fields[(fields.index(self.editing) + 1) % len(fields)]
                 self.game.audio.play("ui", 0.3)
                 return
             if e.key == pygame.K_BACKSPACE:
-                if self.editing == "ip":
-                    self.ip = self.ip[:-1]
-                elif self.editing == "port":
-                    self.port_str = self.port_str[:-1]
-                elif self.editing == "name":
+                if self.editing == "target":
+                    self.target = self.target[:-1]
+                elif self.editing == "relay":
+                    self.relay_addr = self.relay_addr[:-1]
+                else:
                     self.name = self.name[:-1]
                 return
             if e.unicode and len(e.unicode) == 1 and e.key != pygame.K_RETURN:
-                if self.editing == "ip" and len(self.ip) < 21:
-                    self.ip += e.unicode
-                elif self.editing == "port" and e.unicode.isdigit() and len(self.port_str) < 5:
-                    self.port_str += e.unicode
+                if self.editing == "target" and len(self.target) < 28:
+                    self.target += e.unicode
+                elif self.editing == "relay" and len(self.relay_addr) < 32:
+                    self.relay_addr += e.unicode
                 elif self.editing == "name" and len(self.name) < 16:
                     self.name += e.unicode
                 self.game.audio.play("ui", 0.2)
@@ -1036,12 +1126,16 @@ class JoinScene(Scene):
 
     def draw(self, surf) -> None:
         veil(surf, 220)
-        text(surf, "JOIN CO-OP", (config.SCREEN_W // 2, 160), 36, GOLD, bold=True, anchor="center")
-        if self.error:
-            text(surf, f"Error: {self.error}", (config.SCREEN_W // 2, 210), 16, config.UI_DANGER, anchor="center")
         cx = config.SCREEN_W // 2
-        y0 = 240
-        fields = [("Host IP", "ip", self.ip), ("Port", "port", self.port_str), ("Your name", "name", self.name)]
+        text(surf, "JOIN CO-OP", (cx, 140), 36, GOLD, bold=True, anchor="center")
+        if self.error:
+            text(surf, f"Error: {self.error}", (cx, 185), 16, config.UI_DANGER, anchor="center")
+        y0 = 225
+        fields = [
+            ("IP or Room Code", "target", self.target),
+            ("Relay Server", "relay", self.relay_addr),
+            ("Your Name", "name", self.name),
+        ]
         for label, fid, val in fields:
             col = (255, 255, 255) if self.editing == fid else (160, 170, 190)
             box_col = GOLD if self.editing == fid else (60, 70, 90)
@@ -1049,8 +1143,9 @@ class JoinScene(Scene):
             blink = "_" if self.editing == fid and int(pygame.time.get_ticks() / 500) % 2 == 0 else ""
             pygame.draw.rect(surf, box_col, (cx - 130, y0 - 14, 300, 28), 2, border_radius=4)
             text(surf, val + blink, (cx - 120, y0), 17, (255, 255, 255), anchor="midleft")
-            y0 += 48
-        text(surf, "Tab to switch fields", (cx, y0 + 6), 13, (120, 140, 170), anchor="midtop")
+            y0 += 44
+        lan_info = f"{len(self.lan_hosts)} LAN game(s) found" if self.lan_hosts else "No LAN games found — use IP or Room Code"
+        text(surf, f"Tab to switch fields  ·  {lan_info}", (cx, y0 + 4), 13, CYAN, anchor="midtop")
         self.menu.draw(surf)
 
 
