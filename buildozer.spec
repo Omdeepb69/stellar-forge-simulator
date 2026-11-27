@@ -5,10 +5,10 @@ package.domain = com.stellarforge
 source.dir = .
 source.include_exts = py,png,json,txt,md
 source.include_patterns = assets/**
-source.exclude_dirs = tests,docs,.git,.github,stella,saves,__pycache__,.mypy_cache,.pytest_cache
+source.exclude_dirs = tests,docs,.git,.github,stella,saves,__pycache__,.mypy_cache,.pytest_cache,.buildozer,bin
 source.exclude_patterns = *.pyc,*.pyo
 
-version = 0.1.11
+version = 0.1.12
 
 requirements = python3,pygame,numpy
 
@@ -21,7 +21,7 @@ android.permissions = INTERNET
 # Target / min API levels
 android.api = 33
 android.minapi = 24
-android.ndk = 25c
+android.ndk = 25b
 
 # Use SDL2 bootstrap for pygame
 p4a.bootstrap = sdl2
@@ -35,7 +35,7 @@ entrypoint = main.py
 
 # Build configuration
 android.accept_sdk_license = True
-android.arch = arm64-v8a
+android.archs = arm64-v8a
 
 # Optimise for size
 android.release_artifact = apk

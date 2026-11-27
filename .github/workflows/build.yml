@@ -135,18 +135,20 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y build-essential git zip unzip openjdk-17-jdk \
-            autoconf libtool pkg-config zlib1g-dev libncurses5-dev \
-            libncursesw5-dev cmake libffi-dev libssl-dev
-          pip install buildozer cython
+            autoconf automake libtool pkg-config zlib1g-dev libncurses5-dev \
+            libncursesw5-dev cmake libffi-dev libssl-dev lld
+          pip install buildozer "cython<3" setuptools
 
       - name: Build Android APK (debug)
         run: |
-          yes | buildozer -v android debug 2>&1 | tail -200
+          buildozer -v android debug
         timeout-minutes: 60
 
       - name: Rename APK
         run: |
+          ls -la bin/
           APK=$(find bin -name '*.apk' | head -1)
+          test -n "$APK"
           cp "$APK" StellarForge-Android.apk
 
       - name: Upload Android artifact
