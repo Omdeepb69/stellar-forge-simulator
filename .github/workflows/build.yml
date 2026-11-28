@@ -170,6 +170,21 @@ jobs:
           test -n "$APK"
           cp "$APK" StellarForge-Android.apk
 
+      - name: Verify pygame/surface.so symbols in APK
+        run: |
+          python - <<'EOF'
+          import zipfile, tarfile, io, subprocess, tempfile, os
+          z = zipfile.ZipFile("StellarForge-Android.apk")
+          tf = tarfile.open(fileobj=io.BytesIO(z.read("lib/arm64-v8a/libpybundle.so")))
+          with tempfile.TemporaryDirectory() as td:
+              p = os.path.join(td, "surface.so")
+              open(p, "wb").write(tf.extractfile("_python_bundle/site-packages/pygame/surface.so").read())
+              out = subprocess.check_output(["nm", "-D", "-u", p]).decode()
+              bad = [l.strip() for l in out.splitlines() if any(k in l for k in ("alphablit_", "pg_has_avx2", "pg_sse2", "pg_avx2", "pg_neon"))]
+              print("Undefined SIMD symbols in surface.so:", bad)
+              assert not bad, f"Missing SIMD symbols in pygame/surface.so: {bad}"
+          EOF
+
       - name: Upload Android artifact
         uses: actions/upload-artifact@v4
         with:

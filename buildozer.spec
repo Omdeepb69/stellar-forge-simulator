@@ -5,10 +5,10 @@ package.domain = com.stellarforge
 source.dir = .
 source.include_exts = py,png,json,txt,md
 source.include_patterns = assets/**
-source.exclude_dirs = tests,docs,.git,.github,stella,saves,__pycache__,.mypy_cache,.pytest_cache,.buildozer,bin
+source.exclude_dirs = tests,docs,.git,.github,stella,saves,__pycache__,.mypy_cache,.pytest_cache,.buildozer,bin,p4a_recipes
 source.exclude_patterns = *.pyc,*.pyo
 
-version = 0.1.18
+version = 0.1.19
 
 requirements = python3,pygame==2.5.2,numpy
 
@@ -26,6 +26,7 @@ android.ndk = 25b
 # Pin python-for-android to v2024.01.21 (Python 3.11.5 + compatible numpy/pygame)
 p4a.bootstrap = sdl2
 p4a.branch = v2024.01.21
+p4a.local_recipes = ./p4a_recipes
 
 # App icon & unstretched landscape presplash
 presplash.filename = assets/generated/ui/presplash.png
