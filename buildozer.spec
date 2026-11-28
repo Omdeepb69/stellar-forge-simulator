@@ -27,8 +27,9 @@ android.ndk = 25b
 p4a.bootstrap = sdl2
 p4a.branch = v2024.01.21
 
-# App icon
-presplash.filename = assets/generated/ui/icon_256.png
+# App icon & unstretched landscape presplash
+presplash.filename = assets/generated/ui/presplash.png
+android.presplash_color = #03040c
 icon.filename = assets/generated/ui/icon_256.png
 
 # Entry point

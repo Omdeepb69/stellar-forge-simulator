@@ -116,7 +116,7 @@ class TouchOverlay:
     # ------------------------------------------------------------------
     def handle_event(self, event: pygame.event.Event) -> bool:
         """Process a FINGER* event.  Returns True if consumed."""
-        if not self.enabled:
+        if not self.enabled or getattr(self.game.scenes.top, "menu", False):
             return False
         t = event.type
         if t not in (pygame.FINGERDOWN, pygame.FINGERUP, pygame.FINGERMOTION):
@@ -141,7 +141,7 @@ class TouchOverlay:
 
     def draw(self, surf: pygame.Surface) -> None:
         """Draw semi-transparent touch HUD on top of the scene."""
-        if not self.enabled:
+        if not self.enabled or getattr(self.game.scenes.top, "menu", False):
             return
 
         on_foot = getattr(self.game.scenes.top, "on_foot", False)

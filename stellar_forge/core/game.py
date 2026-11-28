@@ -32,13 +32,21 @@ class Game:
         pygame.display.set_caption(config.TITLE)
         self.headless = headless
         self.settings = Settings.load()
-        flags = pygame.SCALED | pygame.RESIZABLE if not headless else 0
-        if self.settings.fullscreen and not headless:
-            flags |= pygame.FULLSCREEN
+        if headless:
+            flags = 0
+        elif config.IS_ANDROID:
+            flags = pygame.SCALED | pygame.FULLSCREEN
+        else:
+            flags = pygame.SCALED | pygame.RESIZABLE
+            if self.settings.fullscreen:
+                flags |= pygame.FULLSCREEN
         try:
             self.screen = pygame.display.set_mode((config.SCREEN_W, config.SCREEN_H), flags, vsync=1)
         except pygame.error:
-            self.screen = pygame.display.set_mode((config.SCREEN_W, config.SCREEN_H), flags)
+            try:
+                self.screen = pygame.display.set_mode((config.SCREEN_W, config.SCREEN_H), flags)
+            except pygame.error:
+                self.screen = pygame.display.set_mode((config.SCREEN_W, config.SCREEN_H))
         self.clock = pygame.time.Clock()
         self.assets = AssetManager()
         self._set_icon()

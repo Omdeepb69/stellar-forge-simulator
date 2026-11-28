@@ -23,13 +23,15 @@ def _is_android() -> bool:
 IS_ANDROID = _is_android()
 
 if IS_ANDROID:
-    # python-for-android: assets are bundled next to the script, saves go to app-private storage
+    # python-for-android: assets are bundled alongside stellar_forge/ (PROJECT_DIR/assets),
+    # while saves must go to writable app-private storage.
     try:
         from android.storage import app_storage_path  # type: ignore[import]
         _android_base = Path(app_storage_path())
     except Exception:
         _android_base = Path(os.environ.get("ANDROID_PRIVATE", "."))
-    ASSET_DIR = _android_base / "assets"
+    if not ASSET_DIR.exists():
+        ASSET_DIR = _android_base / "app" / "assets"
     SAVE_DIR = _android_base / "saves"
 elif getattr(sys, "frozen", False):
     # packaged build (PyInstaller): assets ship inside the bundle, saves go to the user's data folder
