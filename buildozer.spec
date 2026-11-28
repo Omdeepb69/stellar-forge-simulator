@@ -10,7 +10,7 @@ source.exclude_patterns = *.pyc,*.pyo
 
 version = 0.1.12
 
-requirements = python3,pygame,numpy
+requirements = python3,pygame==2.5.2,numpy
 
 orientation = landscape
 fullscreen = 1
@@ -21,10 +21,11 @@ android.permissions = INTERNET
 # Target / min API levels
 android.api = 33
 android.minapi = 24
-android.ndk = 28c
+android.ndk = 25b
 
-# Use SDL2 bootstrap for pygame
+# Pin python-for-android to v2024.01.21 (Python 3.11.5 + compatible numpy/pygame)
 p4a.bootstrap = sdl2
+p4a.branch = v2024.01.21
 
 # App icon
 presplash.filename = assets/generated/ui/icon_256.png
