@@ -254,7 +254,7 @@ class NetSync:
         if st is not None:
             camp = {
                 "chapter": st.chapter,
-                "keys": sorted(st.keys),
+                "keys": sorted(st.relics),
                 "shards": sorted(st.shards),
                 "boss_defeated": st.boss_defeated,
             }
@@ -310,9 +310,11 @@ class NetSync:
             if int(camp.get("chapter", st.chapter)) > st.chapter:
                 st.chapter = int(camp["chapter"])
             for k in camp.get("keys", ()):
-                st.keys.add(k)
+                if k not in st.relics:
+                    st.relics.append(k)
             for s in camp.get("shards", ()):
-                st.shards.add(s)
+                if s not in st.shards:
+                    st.shards.append(s)
             if camp.get("boss_defeated"):
                 st.boss_defeated = True
 

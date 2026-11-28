@@ -242,6 +242,9 @@ def test_host_scene_stays_open_and_displays_code():
     assert hs.started and hs.mode == "lan" and hs.port > 0
     assert g.scenes.top is hs  # must NOT switch away before Continue
     assert g.scenes._pending is None
+    for _ in range(5):
+        g.step(0.02, events=[])  # exercises _host_broadcast() cleanly
+    assert g.scenes.top is hs
     surf = pygame.Surface((1280, 720))
     hs.draw(surf)
     g.stop_multiplayer()
@@ -252,6 +255,8 @@ def test_host_scene_stays_open_and_displays_code():
     hs2._start_relay()
     assert hs2.error == ""
     assert hs2.started and hs2.mode == "relay" and len(hs2.room_code) == 6
+    for _ in range(5):
+        g.step(0.02, events=[])
     assert g.scenes.top is hs2
     hs2.draw(surf)
     g.stop_multiplayer()

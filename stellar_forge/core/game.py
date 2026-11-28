@@ -194,7 +194,7 @@ class Game:
         return {
             "seed": self.state.seed,
             "chapter": self.state.chapter,
-            "keys": sorted(self.state.keys),
+            "keys": sorted(self.state.relics),
             "shards": sorted(self.state.shards),
             "boss_defeated": self.state.boss_defeated,
             "destroyed": list(self.state.destroyed),
@@ -209,8 +209,8 @@ class Game:
         st = GameState(
             seed=int(w["seed"]),
             chapter=ch,
-            keys=set(w.get("keys", ())),
-            shards=set(w.get("shards", ())),
+            relics=list(w.get("keys", ())),
+            shards=list(w.get("shards", ())),
             boss_defeated=bool(w.get("boss_defeated", False)),
             destroyed=list(w.get("destroyed", ())),
             ending=str(w.get("ending", "")),
