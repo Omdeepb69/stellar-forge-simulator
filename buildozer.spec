@@ -21,7 +21,7 @@ android.permissions = INTERNET
 # Target / min API levels
 android.api = 33
 android.minapi = 24
-android.ndk = 25b
+android.ndk = 28c
 
 # Use SDL2 bootstrap for pygame
 p4a.bootstrap = sdl2
