@@ -205,6 +205,7 @@ class Music:
         self.current: str | None = None
         self.sounds: dict[str, pygame.mixer.Sound] = {}
         self._lock = threading.Lock()
+        self._build_lock = threading.Lock()
         self._pending: set[str] = set()
         self.channels = []
         self.levels = [0.0, 0.0]
@@ -233,12 +234,13 @@ class Music:
 
     def _build(self, name: str) -> None:
         try:
-            data = render_track(name)
-            ch = self.audio.channels
-            pcm = (np.clip(data, -1, 1) * 32767).astype(np.int16)
-            if ch == 1:
-                pcm = pcm.mean(axis=1).astype(np.int16)
-            snd = pygame.sndarray.make_sound(np.ascontiguousarray(pcm))
+            with self._build_lock:
+                data = render_track(name)
+                ch = self.audio.channels
+                pcm = (np.clip(data, -1, 1) * 32767).astype(np.int16)
+                if ch == 1:
+                    pcm = pcm.mean(axis=1).astype(np.int16)
+                snd = pygame.sndarray.make_sound(np.ascontiguousarray(pcm))
             with self._lock:
                 self.sounds[name] = snd
         except Exception as exc:  # pragma: no cover - hardware/driver dependent

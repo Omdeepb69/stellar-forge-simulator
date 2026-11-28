@@ -128,3 +128,16 @@ class TestAndroidConfig:
         assert hasattr(s, "touch_controls")
         assert s.touch_controls is False
 
+    def test_android_viewport_and_coordinate_mapping(self):
+        game = _make_game()
+        # Simulate a 20:9 phone display (2400x1080) with 1280x720 canvas
+        game._display = pygame.Surface((2400, 1080))
+        vx, vy, vw, vh = game._viewport()
+        assert (vw, vh) == (1920, 1080) and (vx, vy) == (240, 0)
+        assert game.pos_to_canvas(240, 0) == (0, 0)
+        assert game.pos_to_canvas(1200, 540) == (640, 360)
+        cx, cy = game.norm_to_canvas(0.5, 0.5)
+        assert abs(cx - 640) < 1 and abs(cy - 360) < 1
+        game.space.on_enter()
+        game.step(0.016, events=[])
+

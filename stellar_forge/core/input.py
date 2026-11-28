@@ -143,12 +143,16 @@ class Input:
     def _add(self, index: int, quiet=False) -> None:
         try:
             js = pygame.joystick.Joystick(index)
+            name = js.get_name() or ""
+            # Android exposes device accelerometer/gyro sensors as SDL joysticks
+            if any(k in name.lower() for k in ("accelerometer", "gyro", "sensor")):
+                return
             js.init()
         except pygame.error:
             return
         self.pads[js.get_instance_id()] = js
         if not quiet:
-            self.game.toasts.add(f"Controller connected: {js.get_name()[:28]}", (140, 220, 255))
+            self.game.toasts.add(f"Controller connected: {name[:28]}", (140, 220, 255))
 
     # ------------------------------------------------------------------
     def pressed(self) -> _Merged:

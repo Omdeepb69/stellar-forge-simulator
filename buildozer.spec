@@ -8,7 +8,7 @@ source.include_patterns = assets/**
 source.exclude_dirs = tests,docs,.git,.github,stella,saves,__pycache__,.mypy_cache,.pytest_cache,.buildozer,bin
 source.exclude_patterns = *.pyc,*.pyo
 
-version = 0.1.12
+version = 0.1.18
 
 requirements = python3,pygame==2.5.2,numpy
 

@@ -26,7 +26,7 @@ class Game:
         # Pre-init the mixer BEFORE pygame.init() so SDL picks the right sample
         # rate and buffer size on all platforms (especially Linux PyInstaller builds
         # where the default buffer can be misdetected as 0).
-        if not headless:
+        if not headless and not config.IS_ANDROID:
             try:
                 pygame.mixer.pre_init(22050, -16, 2, 512)
             except Exception:
@@ -35,28 +35,28 @@ class Game:
         pygame.display.set_caption(config.TITLE)
         self.headless = headless
         self.settings = Settings.load()
-        if headless:
-            flags = 0
-        elif config.IS_ANDROID:
-            # Android is already fullscreen; combining FULLSCREEN + SCALED/vsync can fail on SDL2
-            flags = pygame.SCALED
+        self._display: pygame.Surface | None = None
+        if config.IS_ANDROID and not headless:
+            # Avoid pygame.SCALED/FULLSCREEN/vsync on Android SDL2 (can clash with
+            # SDLActivity's SurfaceView/EGL context). Render to a 1280x720 canvas
+            # and scale-blit cleanly onto the native display surface.
+            self._display = pygame.display.set_mode((0, 0))
+            self.screen = pygame.Surface((config.SCREEN_W, config.SCREEN_H))
         else:
-            flags = pygame.SCALED | pygame.RESIZABLE
-            if self.settings.fullscreen:
+            flags = (pygame.SCALED | pygame.RESIZABLE) if not headless else 0
+            if self.settings.fullscreen and not headless:
                 flags |= pygame.FULLSCREEN
-        try:
-            if config.IS_ANDROID:
-                self.screen = pygame.display.set_mode((config.SCREEN_W, config.SCREEN_H), flags)
-            else:
-                self.screen = pygame.display.set_mode((config.SCREEN_W, config.SCREEN_H), flags, vsync=1)
-        except pygame.error:
             try:
-                self.screen = pygame.display.set_mode((config.SCREEN_W, config.SCREEN_H), flags)
+                self.screen = pygame.display.set_mode((config.SCREEN_W, config.SCREEN_H), flags, vsync=1)
             except pygame.error:
-                self.screen = pygame.display.set_mode((config.SCREEN_W, config.SCREEN_H))
+                try:
+                    self.screen = pygame.display.set_mode((config.SCREEN_W, config.SCREEN_H), flags)
+                except pygame.error:
+                    self.screen = pygame.display.set_mode((config.SCREEN_W, config.SCREEN_H))
         self.clock = pygame.time.Clock()
         self.assets = AssetManager()
-        self._set_icon()
+        if not config.IS_ANDROID:
+            self._set_icon()
         self.audio = Audio()
         self.music = Music(self.audio)
         self.events = EventBus()
@@ -78,7 +78,8 @@ class Game:
         self.hitstop = 0.0
         self.slow_t = 0.0
         self.apply_settings()
-        self.music.prewarm(["title", "surface", "space"])
+        if not config.IS_ANDROID:
+            self.music.prewarm(["title", "surface", "space"])
 
     def _set_icon(self) -> None:
         try:
@@ -430,12 +431,40 @@ class Game:
         except Exception:
             pass
 
+    def _viewport(self) -> tuple[int, int, int, int]:
+        if self._display is None:
+            return 0, 0, config.SCREEN_W, config.SCREEN_H
+        dw, dh = self._display.get_size()
+        scale = min(dw / config.SCREEN_W, dh / config.SCREEN_H)
+        vw, vh = max(1, int(config.SCREEN_W * scale)), max(1, int(config.SCREEN_H * scale))
+        return (dw - vw) // 2, (dh - vh) // 2, vw, vh
+
+    def pos_to_canvas(self, px: float, py: float) -> tuple[int, int]:
+        if self._display is None:
+            return int(px), int(py)
+        vx, vy, vw, vh = self._viewport()
+        cx = int((px - vx) * config.SCREEN_W / vw)
+        cy = int((py - vy) * config.SCREEN_H / vh)
+        return max(0, min(config.SCREEN_W - 1, cx)), max(0, min(config.SCREEN_H - 1, cy))
+
+    def norm_to_canvas(self, nx: float, ny: float) -> tuple[float, float]:
+        if self._display is None:
+            return nx * config.SCREEN_W, ny * config.SCREEN_H
+        dw, dh = self._display.get_size()
+        vx, vy, vw, vh = self._viewport()
+        return (nx * dw - vx) * config.SCREEN_W / vw, (ny * dh - vy) * config.SCREEN_H / vh
+
     def _expand(self, events):
         for event in events:
             # Touch events are consumed by the overlay and turned into KEYDOWN/UP
             if event.type in (pygame.FINGERDOWN, pygame.FINGERUP, pygame.FINGERMOTION):
                 self.touch.handle_event(event)
                 continue
+            if self._display is not None and event.type in (
+                    pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP):
+                d = dict(event.dict)
+                d["pos"] = self.pos_to_canvas(*event.pos)
+                event = pygame.event.Event(event.type, d)
             if pygame.JOYAXISMOTION <= event.type <= pygame.JOYDEVICEREMOVED:
                 yield from self.input.translate(event)
             else:
@@ -491,7 +520,23 @@ class Game:
             from ..ui.text import text
             text(self.screen, f"{self.clock.get_fps():.0f} fps", (config.SCREEN_W - 8, config.SCREEN_H - 8),
                  14, anchor="bottomright")
+        if self._display is not None:
+            dw, dh = self._display.get_size()
+            if (dw, dh) == (config.SCREEN_W, config.SCREEN_H):
+                self._display.blit(self.screen, (0, 0))
+            else:
+                vx, vy, vw, vh = self._viewport()
+                self._display.fill((0, 0, 0))
+                scaled = pygame.transform.scale(self.screen, (vw, vh))
+                self._display.blit(scaled, (vx, vy))
         pygame.display.flip()
+        if config.IS_ANDROID and not getattr(self, "_splash_hidden", False):
+            self._splash_hidden = True
+            try:
+                from android.loadingscreen import hide_loading_screen
+                hide_loading_screen()
+            except Exception:
+                pass
 
 
 def _show_crash_screen(tb_text: str) -> None:

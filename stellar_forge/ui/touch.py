@@ -123,8 +123,11 @@ class TouchOverlay:
             return False
 
         # SDL gives finger coords as 0..1 fractions of the window
-        px = event.x * config.SCREEN_W
-        py = event.y * config.SCREEN_H
+        if hasattr(self.game, "norm_to_canvas"):
+            px, py = self.game.norm_to_canvas(event.x, event.y)
+        else:
+            px = event.x * config.SCREEN_W
+            py = event.y * config.SCREEN_H
         fid = event.finger_id
 
         if t == pygame.FINGERDOWN:

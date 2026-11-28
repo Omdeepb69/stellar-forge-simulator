@@ -55,11 +55,12 @@ class Audio:
             return
         if cur:
             pygame.mixer.quit()
+        buf = 1024 if os.environ.get("ANDROID_ARGUMENT") or os.environ.get("P4A_BOOTSTRAP") else 512
         try:
-            pygame.mixer.init(RATE, -16, 2, 512)
+            pygame.mixer.init(RATE, -16, 2, buf)
             return
         except pygame.error:
-            if os.environ.get("SDL_AUDIODRIVER"):
+            if os.environ.get("SDL_AUDIODRIVER") or os.environ.get("ANDROID_ARGUMENT"):
                 raise
         # Try common Linux/desktop SDL audio backends if the default failed
         last_err: Exception | None = None
