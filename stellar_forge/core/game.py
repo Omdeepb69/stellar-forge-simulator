@@ -27,7 +27,10 @@ class Game:
         # rate and buffer size on all platforms (especially Linux PyInstaller builds
         # where the default buffer can be misdetected as 0).
         if not headless:
-            pygame.mixer.pre_init(22050, -16, 2, 512)
+            try:
+                pygame.mixer.pre_init(22050, -16, 2, 512)
+            except Exception:
+                pass
         pygame.init()
         pygame.display.set_caption(config.TITLE)
         self.headless = headless
@@ -35,13 +38,17 @@ class Game:
         if headless:
             flags = 0
         elif config.IS_ANDROID:
-            flags = pygame.SCALED | pygame.FULLSCREEN
+            # Android is already fullscreen; combining FULLSCREEN + SCALED/vsync can fail on SDL2
+            flags = pygame.SCALED
         else:
             flags = pygame.SCALED | pygame.RESIZABLE
             if self.settings.fullscreen:
                 flags |= pygame.FULLSCREEN
         try:
-            self.screen = pygame.display.set_mode((config.SCREEN_W, config.SCREEN_H), flags, vsync=1)
+            if config.IS_ANDROID:
+                self.screen = pygame.display.set_mode((config.SCREEN_W, config.SCREEN_H), flags)
+            else:
+                self.screen = pygame.display.set_mode((config.SCREEN_W, config.SCREEN_H), flags, vsync=1)
         except pygame.error:
             try:
                 self.screen = pygame.display.set_mode((config.SCREEN_W, config.SCREEN_H), flags)
@@ -80,7 +87,7 @@ class Game:
             # Load the 256px icon and let the OS / pygame pick the best size
             img = self.assets.image(path)
             pygame.display.set_icon(img)
-        except pygame.error:
+        except Exception:
             pass
 
     # ------------------------------------------------------------------
@@ -487,11 +494,44 @@ class Game:
         pygame.display.flip()
 
 
+def _show_crash_screen(tb_text: str) -> None:
+    """On Android, display fatal startup errors on screen instead of exiting silently."""
+    try:
+        from ..ui import pixelfont
+        surf = pygame.display.get_surface()
+        if surf is None:
+            pygame.init()
+            surf = pygame.display.set_mode((config.SCREEN_W, config.SCREEN_H))
+        lines = ["STELLAR FORGE STARTUP ERROR (tap to close):", ""] + tb_text.splitlines()[-24:]
+        for _ in range(200):
+            for ev in pygame.event.get():
+                if ev.type in (pygame.QUIT, pygame.FINGERDOWN, pygame.MOUSEBUTTONDOWN, pygame.KEYDOWN):
+                    return
+            surf.fill((20, 6, 10))
+            y = 24
+            for ln in lines:
+                pixelfont.draw(surf, ln[:78], (20, y), 2, (255, 210, 210))
+                y += 22
+            pygame.display.flip()
+            pygame.time.wait(100)
+    except Exception:
+        pass
+
+
 def main() -> None:
     try:
         Game().run()
     except KeyboardInterrupt:
         pass
     except Exception:
-        traceback.print_exc()
+        tb = traceback.format_exc()
+        print(tb)
+        try:
+            config.SAVE_DIR.mkdir(parents=True, exist_ok=True)
+            with open(config.SAVE_DIR / "crash.log", "a", encoding="utf-8") as f:
+                f.write("\n--- FATAL ---\n" + tb)
+        except Exception:
+            pass
+        if config.IS_ANDROID:
+            _show_crash_screen(tb)
         sys.exit(1)

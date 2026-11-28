@@ -215,7 +215,7 @@ class Music:
                 pygame.mixer.set_num_channels(max(24, pygame.mixer.get_num_channels()))
                 pygame.mixer.set_reserved(2)
                 self.channels = [pygame.mixer.Channel(0), pygame.mixer.Channel(1)]
-            except pygame.error:
+            except Exception:
                 self.enabled = False
 
     def prewarm(self, names) -> None:

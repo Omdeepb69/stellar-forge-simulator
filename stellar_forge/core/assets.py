@@ -97,8 +97,12 @@ class AssetManager:
                 self.missing.add(rel_path)
             surf = placeholder()
         else:
-            surf = pygame.image.load(str(path))
-            surf = surf.convert_alpha() if pygame.display.get_surface() else surf
+            try:
+                surf = pygame.image.load(str(path))
+                surf = surf.convert_alpha() if pygame.display.get_surface() else surf
+            except Exception as exc:
+                print(f"[assets] failed to load {rel_path}: {exc}")
+                surf = placeholder()
         self._cache[key] = surf
         return surf
 
