@@ -224,3 +224,34 @@ def test_relay_invalid_code_rejects():
     with pytest.raises(ConnectionError, match="not found"):
         RelayClient("127.0.0.1", rport, code="ZZZZZZ", name="Lost").connect()
     srv.stop()
+
+
+def test_host_scene_stays_open_and_displays_code():
+    """Hosting LAN or Relay from Title must keep HostScene on top until Continue."""
+    import pygame
+    from stellar_forge.core.game import Game
+    from stellar_forge.scenes.menus import HostScene, TitleScene
+
+    g = Game(headless=True)
+    g.scenes.switch(TitleScene(g), fade=False)
+    hs = HostScene(g)
+    g.scenes.push(hs)
+    assert g.scenes.top is hs
+
+    hs._start_lan()
+    assert hs.started and hs.mode == "lan" and hs.port > 0
+    assert g.scenes.top is hs  # must NOT switch away before Continue
+    assert g.scenes._pending is None
+    surf = pygame.Surface((1280, 720))
+    hs.draw(surf)
+    g.stop_multiplayer()
+
+    hs2 = HostScene(g)
+    hs2.relay_addr = "127.0.0.1:50559"
+    g.scenes.push(hs2)
+    hs2._start_relay()
+    assert hs2.error == ""
+    assert hs2.started and hs2.mode == "relay" and len(hs2.room_code) == 6
+    assert g.scenes.top is hs2
+    hs2.draw(surf)
+    g.stop_multiplayer()

@@ -58,6 +58,7 @@ class Game:
         self.quests: QuestManager | None = None
         self._space_scene = None
         self.net = None
+        self._embedded_relay = None
         self.running = True
         self.hitstop = 0.0
         self.slow_t = 0.0
@@ -127,10 +128,10 @@ class Game:
         """Point saving/loading at a slot file."""
         config.SAVE_FILE = path
 
-    def new_game(self, seed: int | None = None, difficulty: str = "normal") -> None:
+    def new_game(self, seed: int | None = None, difficulty: str = "normal", switch_scene: bool = True) -> None:
         state = GameState() if seed is None else GameState(seed=seed)
         state.difficulty = difficulty
-        self._begin(state)
+        self._begin(state, switch_scene=switch_scene)
         self.quests.start()
         self.save()
 
@@ -151,7 +152,7 @@ class Game:
         self.toasts.add("Game loaded", config.UI_GOOD)
         return True
 
-    def _begin(self, state: GameState) -> None:
+    def _begin(self, state: GameState, switch_scene: bool = True) -> None:
         from ..scenes.space import SpaceScene
         from ..scenes.surface import SurfaceScene
         self.events = EventBus()
@@ -168,19 +169,22 @@ class Game:
             self.quests._on_boss()          # saved during the Act II intro: resume in Act II
         if self.quests.cid == "boss" and not state.boss_defeated:
             from ..scenes.boss import BossScene
-            self.scenes.switch(BossScene(self))
+            if switch_scene:
+                self.scenes.switch(BossScene(self))
             return
         loc = state.location
         if loc.get("kind") == "surface":
             planet = self.universe.find_body(loc.get("planet", "0,0:0")) or self.universe.find_body("0,0:0")
-            self.scenes.switch(SurfaceScene(self, planet))
+            if switch_scene:
+                self.scenes.switch(SurfaceScene(self, planet))
         else:
             body = self.universe.find_body(loc.get("near", "")) if loc.get("near") else None
             if body is not None:
                 self._space_scene.launch_from(body, quiet=True)
             else:
                 self._space_scene.place_ship(pygame.Vector2(loc.get("x", 0), loc.get("y", 0)))
-            self.scenes.switch(self._space_scene)
+            if switch_scene:
+                self.scenes.switch(self._space_scene)
 
     @property
     def space(self):
@@ -222,7 +226,7 @@ class Game:
         from ..net import NetHost, NetSync
         self.stop_multiplayer()
         if self.state is None:
-            self.new_game()
+            self.new_game(switch_scene=False)
         host = NetHost(host_name=name, port=port)
         host.welcome_fn = self._welcome_payload
         bound = host.start()
@@ -230,14 +234,28 @@ class Game:
         return bound
 
     def host_relay(self, relay_host: str, relay_port: int = 50557, name: str = "Voyager-1") -> str:
-        """Host the current (or a fresh) galaxy through a Room-Code relay server."""
-        from ..net import NetSync, RelayHost
+        """Host the current (or a fresh) galaxy through a Room-Code relay server.
+
+        If ``relay_host`` is localhost and no external relay is running, starts
+        an embedded relay server automatically so Room Codes work out of the box.
+        """
+        from ..net import NetSync, RelayHost, RelayServer
         self.stop_multiplayer()
         if self.state is None:
-            self.new_game()
+            self.new_game(switch_scene=False)
         host = RelayHost(relay_host, relay_port, host_name=name)
         host.welcome_fn = self._welcome_payload
-        code = host.start()
+        try:
+            code = host.start()
+        except OSError:
+            if relay_host not in ("127.0.0.1", "localhost", "0.0.0.0"):
+                raise
+            srv = RelayServer("0.0.0.0", port=relay_port)
+            srv.start()
+            self._embedded_relay = srv
+            host = RelayHost("127.0.0.1", srv.port, host_name=name)
+            host.welcome_fn = self._welcome_payload
+            code = host.start()
         self.net = NetSync(self, host)
         return code
 
@@ -261,6 +279,9 @@ class Game:
         if self.net is not None:
             self.net.stop()
             self.net = None
+        if self._embedded_relay is not None:
+            self._embedded_relay.stop()
+            self._embedded_relay = None
 
     def land(self, planet) -> None:
         from ..scenes.surface import SurfaceScene

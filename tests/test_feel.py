@@ -19,7 +19,8 @@ def _hold_jump(monkeypatch, held):
 
 
 def test_plain_jump_never_hurts(game, monkeypatch):
-    _land_on(game, _home(game))
+    s = _land_on(game, _home(game))
+    s.creatures.clear()
     for _ in range(5):
         hp = game.state.pilot_hp
         run(game, 0.05, [key(pygame.K_w)])
@@ -29,6 +30,7 @@ def test_plain_jump_never_hurts(game, monkeypatch):
 
 def test_jetpack_lasts_and_hops_are_safe(game, monkeypatch):
     s = _land_on(game, _home(game))
+    s.creatures.clear()
     p = s.pilot
     assert game.state.jetpack_capacity >= 2.5
     held = [True]

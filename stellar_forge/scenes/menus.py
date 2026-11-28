@@ -122,50 +122,46 @@ class Menu:
 
 CONTROLS = [
     ("SPACE FLIGHT", ""),
-    ("W / Up", "Thrust      SHIFT  boost (burns fuel)"),
-    ("A D / Left Right", "Rotate"),
-    ("S / Down", "Match speed with nearest body (brake)"),
-    ("SPACE / mouse", "Fire blaster"),
-    ("L", "Land on a nearby planet"),
-    ("E", "Dock at station / wormhole / Stellar Forge"),
-    ("M  /  TAB", "Galaxy map (click: waypoint)  /  cycle scanner target"),
-    ("P  /  Q", "Autopilot to target or waypoint  /  switch weapon"),
-    ("V  /  C", "Camera: close / medium / far (also wheel, + -)  /  hail the Survey Corps"),
+    ("W / S", "Thrust   /   Brake (match speed with nearest body)"),
+    ("A D / Arrows", "Rotate      SHIFT  boost (burns fuel)"),
+    ("SPACE / mouse", "Fire blaster      Q  switch weapon"),
+    ("E  /  L", "Dock (station, gate, Forge)   /   Land on nearby planet"),
+    ("M  /  TAB  /  P", "Galaxy map   /   cycle scanner   /   Autopilot"),
+    ("V  /  C", "Camera zoom (close, med, far)   /   hail Survey Corps"),
     ("ON FOOT", ""),
-    ("A D", "Walk       W jump, hold W in the air for jetpack"),
-    ("SPACE / J", "Sword (mines ore, reflects boss orbs)"),
-    ("F / K", "Blaster"),
-    ("E", "Board rocket, enter caves, talk to settlers and groups, mine, open boards"),
-    ("O", "Outpost menu (at rocket)"),
-    ("H", "Use a Nano-Medkit to restore pilot health"),
-    ("F hold  /  Q", "Charged piercing shot  /  swap sword and boomerang"),
+    ("A D  /  W", "Walk   /   Jump (hold W in air for jetpack)"),
+    ("SPACE / J  |  F / K", "Sword (mine, reflect orbs)   |   Blaster (hold: charged)"),
+    ("Q  /  H", "Swap sword & boomerang   /   Use Nano-Medkit"),
+    ("E  /  O", "Board ship, caves, NPCs, mine   /   Outpost (at rocket)"),
     ("GENERAL", ""),
-    ("B", "Logbook: journal, codex, achievements, stats"),
-    ("Enter", "Advance dialogue     ESC pause     F11 fullscreen     F3 fps"),
+    ("B  /  Enter  /  ESC", "Logbook   /   Advance dialogue   /   Pause"),
+    ("F11  /  F3", "Fullscreen   /   Toggle FPS"),
     ("GAMEPAD", ""),
-    ("Stick / D-pad", "Steer, walk, menus    A fire/confirm    B back    X dock/interact"),
-    ("Y  LB  RB", "Land    boost    blaster      LT brake  RT thrust   View map   Guide camera"),
-    ("On foot", "A jump    X sword    Y interact    RB blaster    L-stick click: Corps"),
+    ("Stick / D-pad", "Steer, walk, menus    A fire/confirm    B back    X use"),
+    ("Y  LB  RB  LT  RT", "Land   boost   blaster   brake   thrust (View: map)"),
+    ("On foot", "A jump    X sword    Y interact    RB blaster    L3: Corps"),
     ("TOUCH SCREEN", ""),
-    ("Left joystick / D-pad", "Steer and thrust (space) · walk and jump (on foot)"),
-    ("Right-side buttons", "Action buttons change per scene · enable in Settings or auto on Android"),
+    ("Left stick / D-pad", "Steer & thrust (space)  ·  walk & jump (on foot)"),
+    ("Right buttons", "Scene actions (toggle in Settings or auto on Android)"),
 ]
 
 
-def draw_controls(surf, y0=60) -> None:
+def draw_controls(surf, y0=56) -> None:
     from ..ui.text import theme
     th = theme()
-    w = 900
+    w = 960
+    row_h = 22
     x = (config.SCREEN_W - w) // 2
-    th.panel(surf, (x, y0 - 34, w, len(CONTROLS) * 23 + 92))
+    th.panel(surf, (x, y0 - 30, w, len(CONTROLS) * row_h + 74))
     for i, (k, v) in enumerate(CONTROLS):
-        y = y0 + i * 23
+        y = y0 + i * row_h
         if not v:
-            th.text(surf, k, (x + 40, y), 2, th.c["accent"])
+            th.text(surf, k, (x + 36, y), 2, th.c["accent"])
         else:
-            th.text(surf, k, (x + 60, y), 2, (140, 220, 255))
-            th.text(surf, v, (x + 300, y), 2, th.c["text"])
-    th.text(surf, "press any key", (config.SCREEN_W // 2, y0 + len(CONTROLS) * 23 + 14), 2, th.c["dim"], "midtop")
+            th.text(surf, k, (x + 56, y), 2, (140, 220, 255))
+            th.text(surf, v, (x + 310, y), 2, th.c["text"])
+    th.text(surf, "press any key or click", (config.SCREEN_W // 2, y0 + len(CONTROLS) * row_h + 12),
+            2, th.c["dim"], "midtop")
 
 
 class ControlsScene(Scene):
@@ -312,10 +308,9 @@ class TitleScene(Scene):
         if self.save and self.save.forge_restored:
             items.append(("New Game +", self._ng_plus, "New galaxy, harder foes, keep your gear"))
         items += [("Logbook", self._logbook, "Achievements, codex and stats"),
-                  ("Host Co-op", self._host, "Host a LAN/IP co-op game"),
+                  ("Host Co-op", self._host, "Host a LAN/IP or Room-Code co-op game"),
                   ("Join Co-op", self._join, "Join a friend's co-op game"),
-                  ("Settings", self._settings, "Audio, display, controls and comfort"),
-                  ("Controls", self._help, "Flight, surface and gamepad bindings"),
+                  ("Settings", self._settings, "Audio, display, controls and touch"),
                   ("Credits", self._credits, ""),
                   ("Quit", self._quit, "")]
         self.menu = Menu(items, 262, self.game, 340, x=88)
@@ -725,10 +720,10 @@ class SettingsScene(Scene):
 
     def _rects(self):
         r = self._frame()
-        return [pygame.Rect(r.x + 30, r.y + 64 + i * 42, r.w - 60, 36) for i in range(len(self.rows()))]
+        return [pygame.Rect(r.x + 30, r.y + 62 + i * 40, r.w - 60, 34) for i in range(len(self.rows()))]
 
     def _frame(self):
-        return pygame.Rect((config.SCREEN_W - 620) // 2, 50, 620, 620)
+        return pygame.Rect((config.SCREEN_W - 620) // 2, 42, 620, 636)
 
     def handle_event(self, e) -> None:
         rows = self.rows()
@@ -847,7 +842,7 @@ class PauseScene(Scene):
             items.append(("Save game", self._save))
         if game.net is not None:
             items.append(("Disconnect", self._disconnect))
-        items += [("Settings", self._settings), ("Controls", self._help), ("Save & quit to title", self._title)]
+        items += [("Settings", self._settings), ("Save & quit to title", self._title)]
         self.menu = Menu(items, 250, game)
 
     def _resume(self):
@@ -971,10 +966,8 @@ class HostScene(Scene):
 
     def _play(self):
         if not self.game.state:
-            self.game.new_game()
-        if not self.game.scenes.has(type(self.game.space)):
-            self.game._begin(self.game.state)
-        self.game.scenes.pop()
+            self.game.new_game(switch_scene=False)
+        self.game.scenes.switch(self.game.space)
 
     def _back(self):
         if self.started:
@@ -1011,16 +1004,23 @@ class HostScene(Scene):
         if self.error:
             text(surf, f"Error: {self.error}", (cx, 200), 17, config.UI_DANGER, anchor="center")
         elif self.started and self.mode == "relay":
-            text(surf, "Share this Room Code with friends:", (cx, 205), 17, CYAN, anchor="center")
-            text(surf, self.room_code, (cx, 252), 42, (255, 235, 130), bold=True, anchor="center")
+            text(surf, "Share this Room Code with friends:", (cx, 200), 18, CYAN, anchor="center")
+            box = pygame.Rect(cx - 160, 224, 320, 74)
+            panel(surf, box, color=(8, 20, 44, 240), border=GOLD, radius=8)
+            text(surf, self.room_code, box.center, 44, (255, 235, 130), bold=True, anchor="center")
             n = self.game.net.peer_count() if self.game.net else 1
-            text(surf, f"{n} player{'s' if n != 1 else ''} connected  ·  Relay {self.relay_addr}",
-                 (cx, 304), 15, CYAN, anchor="center")
+            from ..net import local_ip
+            srv_info = f"{local_ip()}:{self._parse_addr(self.relay_addr)[1]}" if self.game._embedded_relay else self.relay_addr
+            text(surf, f"{n} player{'s' if n != 1 else ''} connected  ·  Relay {srv_info}",
+                 (cx, 322), 15, CYAN, anchor="center")
         elif self.started:
-            text(surf, "Friends on your Wi-Fi / LAN can join:", (cx, 205), 17, CYAN, anchor="center")
-            text(surf, f"{self.ip}:{self.port}", (cx, 250), 30, (255, 255, 255), bold=True, anchor="center")
+            text(surf, "Friends on your Wi-Fi / LAN can join via IP:", (cx, 200), 18, CYAN, anchor="center")
+            box = pygame.Rect(cx - 210, 224, 420, 68)
+            panel(surf, box, color=(8, 20, 44, 240), border=GOLD, radius=8)
+            text(surf, f"{self.ip}:{self.port}", box.center, 30, (255, 255, 255), bold=True, anchor="center")
             n = self.game.net.peer_count() if self.game.net else 1
-            text(surf, f"{n} player{'s' if n != 1 else ''} connected", (cx, 296), 16, CYAN, anchor="center")
+            text(surf, f"{n} player{'s' if n != 1 else ''} connected  ·  Auto-discovered on LAN",
+                 (cx, 316), 15, CYAN, anchor="center")
         else:
             text(surf, "Host on LAN (same Wi-Fi) or via a Relay Room Code (any network).",
                  (cx, 205), 16, (200, 210, 230), anchor="center")
